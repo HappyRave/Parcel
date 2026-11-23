@@ -7,15 +7,25 @@ per remote host, with the company/service logo, geographic origin, packet counts
 The look takes inspiration from GlassWire's mechanics (live traffic graph, per-app / per-host
 breakdown) but is our own design, not a copy of its visuals.
 
-**State (2026-11-23):** capture, attribution, naming, GeoIP and history work. In console mode the
-service runs Npcap (packets, DNS and SNI names), ETW (per-process transfers + DNS-client names,
-admin only) and a 1 s socket-table poll into the engine, which sends per-second ticks by app and
-remote host over the pipe and records them to SQLite; the app shows KPIs, an apps table and the
-selected app's hosts as service · host with location (stamp + city) and network, plus the DB-IP
-credit, and a History tab (30 days / 12 months / all) with the same tables as totals (plain
-tables, not the lab design). Not built: favicons, the per-second backlog for the live graph,
-the real Windows service, the lab UI (graphs, Map, Flow, tray, settings). Update this file as
-pieces land.
+**State (2026-11-23):** capture, attribution, naming, GeoIP, history and the Windows service
+work. The service (installed, or in console mode) runs Npcap (packets, DNS and SNI names), ETW
+(per-process transfers + DNS-client names, admin only) and a 1 s socket-table poll into the
+engine, which sends per-second ticks by app and remote host over the pipe and records them to
+SQLite; the app shows KPIs, an apps table and the selected app's hosts as service · host with
+location (stamp + city) and network, plus the DB-IP credit, and a History tab (30 days / 12
+months / all) with the same tables as totals (plain tables, not the lab design). Not built:
+favicons, the per-second backlog for the live graph, the installer, the lab UI (graphs, Map,
+Flow, tray, settings). Update this file as pieces land.
+
+Windows service (`service.rs`, `runner.rs`): `parcel-service install` registers service `Parcel`
+(automatic start, LocalSystem, restarts 5 s / 30 s / 5 min after a failure, also on an error
+exit) with this exe and the argument `run`, then starts it; `uninstall` stops and deletes it.
+Both need admin and say so plainly otherwise. Console and service share `runner::run`, which
+stops on Ctrl+C or the Service Control Manager's stop / shutdown. The service logs to
+`parcel-service.log` in the data folder, fresh each start. While installed from `target\debug`
+it locks that exe: uninstall (or stop it) before rebuilding `parcel-service`. Verified live
+2026-11-23: install, runs as LocalSystem with ETW on, the app connects, uninstall leaves no
+service and no ETW session.
 
 History (`store.rs`): `parcel.db` in the data folder, WAL. Tables `apps`, `hosts` (latest
 metadata) and `minute` / `hour` / `day` totals keyed (t, app, host), never packets. The
@@ -25,8 +35,7 @@ transaction when the minute ends (and on shutdown); minute rows go after 24 h, h
 user's clock, the UTC offset taken at write time). `Store::usage` reads the finest table still
 covering the range's start, so edges snap to that resolution. The app asks through the pipe
 (`Request::Usage` → `Reply::Usage`, matched by id between ticks); the service answers from a
-read-only connection on a blocking thread. Unelevated runs attribute short flows poorly (most
-of a curl download landed in "Unknown app"); ETW fixes that once the service runs elevated.
+read-only connection on a blocking thread.
 
 Naming (`naming.rs`): hostname → registered domain (`psl`) → `brands.json` on the registered
 domain, else on the public suffix (so `x.github.io` is GitHub) → service = brand, else the
@@ -48,7 +57,13 @@ that URL). Lite data is coarse: anycast IPs land anywhere (1.1.1.1 → Sydney), 
 can carry a district in parentheses.
 
 Attribution: a flow's owner is keyed by (protocol, local port), learned from ETW transfers and
-the socket-table poll; bytes with no owner yet are "Unknown app" (Claude's pick, 2026-11-23).
+the socket-table poll; pid 0 (TIME_WAIT sockets) never replaces an owner. A process is named
+when its pid is first seen, since short-lived ones are gone by the tick. Bytes with no owner yet
+are held up to 2 ticks and given to their owner if one turns up, else to "Unknown app"
+(decided 2026-11-23, the owner picked "Hold back up to 2 s": ETW delivers in ~1 s batches, often
+after Npcap's packets; holding took a short-download test from 5.7 of 15 MB unknown to none).
+The KPI totals are not held. Still open: a process that exits before ETW's batch names it shows
+as "Process <pid>" (fix: ETW Kernel-Process start events, which carry the image path).
 Apps are keyed by exe path (decided 2026-11-23, the owner: "Keep path identity", so two exes
 with one description stay two rows) and named by the exe's `FileDescription` (what Task Manager shows),
 else its file name (Claude's pick; curl shows as "The curl executable"). pids 0 and 4 are
@@ -61,6 +76,7 @@ filtered to hardware adapters yet, so they include VPN / WSL / Hyper-V traffic.
 
 ```powershell
 cargo run -p parcel-service -- console   # the service in this terminal (pnpm service); admin for ETW
+target\debug\parcel-service.exe install   # admin: register + start the Parcel service; `uninstall` removes it
 cargo run -p parcel-service -- console --record events.jsonl   # also dump every Event (holds real hostnames: never commit one)
 pnpm tauri dev                           # the app, unelevated, connects to \\.\pipe\parcel
 pnpm dev                                 # UI only in a browser; open /?mock for the fake backend
@@ -83,11 +99,13 @@ crates/parcel-ipc       messages.rs (wire types, PROTOCOL), frame.rs (u32 LE len
                         pipe.rs (Windows server with a request Handler / Connection + Requester;
                         SDDL: SYSTEM, admins, interactive users)
                         feature `pipe` (default); parcel-core takes only the messages
-crates/parcel-service   binary; `console` starts the sources, engine thread and pipe server until
-                        Ctrl+C. capture/npcap.rs (one thread per hardware adapter, adapters.rs
+crates/parcel-service   binary; main.rs parses console / install / uninstall / run, runner.rs
+                        starts the sources, engine thread and pipe server until told to stop,
+                        service.rs talks to the Service Control Manager, data.rs is the data
+                        folder. capture/npcap.rs (one thread per hardware adapter, adapters.rs
                         matches them by GUID), capture/etw.rs (session `Parcel-KernelNetwork`),
                         capture/ports.rs (socket-table poll), process.rs (pid → exe path + name),
-                        dbip.rs (data folder, monthly DB-IP download), history.rs (answers
+                        dbip.rs (monthly DB-IP download), history.rs (answers
                         Request::Usage).
                         build.rs makes wpcap.lib from lib/wpcap.def with lib.exe (needs the VS C++
                         build tools) and delay-loads wpcap.dll

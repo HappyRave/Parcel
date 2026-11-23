@@ -12,22 +12,6 @@ const KINDS: [&str; 2] = ["city", "asn"];
 const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 const BASE_URL: &str = "https://download.db-ip.com/free";
 
-/// `PARCEL_DATA`, else `%ProgramData%\Parcel`; created if missing.
-///
-/// # Errors
-/// When the folder can't be created.
-pub fn data_dir() -> io::Result<PathBuf> {
-    let dir = match std::env::var_os("PARCEL_DATA") {
-        Some(d) => PathBuf::from(d),
-        None => PathBuf::from(
-            std::env::var_os("ProgramData").unwrap_or_else(|| r"C:\ProgramData".into()),
-        )
-        .join("Parcel"),
-    };
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
-}
-
 /// Keeps `geo` loaded from `dir` and fetches each new month's DB-IP Lite files, until `stop`
 /// is dropped. The downloads go through Parcel's own capture and show as Parcel's traffic.
 pub fn keep_updated(dir: &Path, geo: &RwLock<Geo>, stop: &Receiver<()>) {

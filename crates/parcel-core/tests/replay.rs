@@ -63,12 +63,11 @@ fn basic_with_npcap() {
         [
             "Browser ↓3028 ↑600 pk2/1",
             "  video.example cdn.video.example ↓3028 ↑600 pk2/1",
+            // The 900-byte packet came before ETW named its owner; it was held, then claimed.
+            "Game ↓1600 ↑0 pk2/0",
+            "  - 203.0.113.5 ↓1600 ↑0 pk2/0",
             "Chat ↓0 ↑1350 pk0/1",
             "  - 203.0.113.9 ↓0 ↑1350 pk0/1",
-            "Unknown app ↓900 ↑0 pk1/0",
-            "  - 203.0.113.5 ↓900 ↑0 pk1/0",
-            "Game ↓700 ↑0 pk1/0",
-            "  - 203.0.113.5 ↓700 ↑0 pk1/0",
         ]
     );
 }
@@ -77,8 +76,10 @@ fn basic_with_npcap() {
 fn basic_without_npcap_counts_only_transfers() {
     let tick = replay("basic.jsonl", false);
     assert_eq!((tick.down, tick.up), (5528, 1950));
+    // The fixture's packets still count here (real ETW-only captures have none), plus the
+    // 900-byte transfer.
     assert_eq!(
         tick.apps.iter().find(|a| a.name == "Game").unwrap().down,
-        1600
+        2500
     );
 }

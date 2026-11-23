@@ -17,6 +17,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # No `gzip`: the .mmdb.gz files are decompressed by flate2, never by the HTTP layer.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
+windows-service = "0.8.1"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_LibraryLoader", "Win32_System_Threading"] }
 
 [build-dependencies]

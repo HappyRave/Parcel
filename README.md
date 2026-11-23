@@ -3,8 +3,9 @@
 A lightweight network monitor for Windows. Parcel shows your PC's live traffic and where every packet goes:
 which app sent it, which company or service received it, in which country, how many packets and how much data.
 
-> **Status: scaffold.** The capture approach is proven by two spikes, and the UI has gone through four
-> design rounds. The service, app and pipe between them run end to end, but nothing is captured yet.
+> **Status: early, working end to end.** The service captures, attributes traffic to apps, names hosts, locates
+> them and records history; it installs as a Windows service. The app shows it in plain tables for now: the
+> designed screens (graphs, map, flow, tray) aren't built yet, and there's no installer.
 
 ## What it will do
 
@@ -45,13 +46,23 @@ src-tauri               thin Tauri client
 src                     SvelteKit UI
 ```
 
-Running it (the scaffold: the service serves empty ticks until capture is ported):
+Running it (Windows, Rust stable, Node + pnpm, the Visual Studio C++ build tools, ideally Npcap):
 
 ```powershell
 pnpm install
 cargo run -p parcel-service -- console
 pnpm tauri dev
 ```
+
+Run the service from an **admin** terminal to get per-app attribution from ETW. To install it as a real Windows
+service instead (admin), and to remove it again:
+
+```powershell
+target\debug\parcel-service.exe install
+target\debug\parcel-service.exe uninstall
+```
+
+Data (history, DB-IP files, the service log) lives in `%ProgramData%\Parcel`.
 
 ## In this repo today
 

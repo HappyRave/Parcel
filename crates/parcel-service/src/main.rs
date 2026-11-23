@@ -1,134 +1,92 @@
 use std::fs::File;
-use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::mpsc::{self, Receiver};
-use std::sync::{Arc, RwLock};
+use std::sync::Mutex;
 
-use parcel_core::capture::CaptureSource;
-use parcel_core::event::Event;
-use parcel_core::geo::Geo;
-use parcel_core::store::{Recorder, Store};
-use parcel_ipc::pipe::{self, PIPE_NAME};
-use tokio::sync::broadcast;
 use tracing_subscriber::EnvFilter;
-
-use crate::capture::etw::Etw;
-use crate::capture::npcap::Npcap;
-use crate::capture::ports::PortTable;
-use crate::process::WinProcesses;
 
 mod adapters;
 mod capture;
+mod data;
 mod dbip;
 mod history;
 mod process;
+mod runner;
+mod service;
 
-const USAGE: &str = "usage: parcel-service console [--record <events.jsonl>]";
+const USAGE: &str = "usage: parcel-service <command>
+  console [--record <events.jsonl>]   run in this terminal until Ctrl+C (admin for ETW)
+  install                             register and start the Parcel service (admin)
+  uninstall                           stop and remove the Parcel service (admin)";
 
-fn main() -> ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .init();
-    let args: Vec<String> = std::env::args().skip(1).collect();
+#[derive(Debug, PartialEq, Eq)]
+enum Command {
+    Console(Option<PathBuf>),
+    Install,
+    Uninstall,
+    /// Started by the Service Control Manager.
+    Service,
+}
+
+fn parse(args: &[String]) -> Option<Command> {
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
-        ["console"] => console(None),
-        ["console", "--record", path] => console(Some(PathBuf::from(path))),
-        _ => {
-            eprintln!("{USAGE}");
-            ExitCode::from(2)
-        }
+        ["console"] => Some(Command::Console(None)),
+        ["console", "--record", path] => Some(Command::Console(Some(PathBuf::from(path)))),
+        ["install"] => Some(Command::Install),
+        ["uninstall"] => Some(Command::Uninstall),
+        [arg] if arg == service::RUN_ARG => Some(Command::Service),
+        _ => None,
     }
 }
 
-/// Runs the service in this terminal until Ctrl+C, for development.
-fn console(record: Option<PathBuf>) -> ExitCode {
-    let runtime = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(e) => {
-            tracing::error!("tokio runtime: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let (events, rx) = mpsc::channel::<Event>();
-    let rx = match record {
-        Some(path) => match recorder(&path, rx) {
-            Ok(rx) => rx,
-            Err(e) => {
-                tracing::error!("can't record to {}: {e}", path.display());
-                return ExitCode::FAILURE;
-            }
-        },
-        None => rx,
-    };
+fn filter() -> EnvFilter {
+    EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())
+}
 
-    let data = match dbip::data_dir() {
-        Ok(d) => d,
-        Err(e) => {
-            tracing::error!("data folder: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let db = data.join("parcel.db");
-    let opened = Store::open(&db).and_then(|store| Ok((store, history::handler(&db)?)));
-    let (store, answer) = match opened {
-        Ok(both) => both,
-        Err(e) => {
-            tracing::error!("history database {}: {e}", db.display());
-            return ExitCode::FAILURE;
-        }
-    };
-    let geo = Arc::new(RwLock::new(Geo::default()));
-    // Never joined: it may be mid-download at shutdown, and holds nothing that needs closing.
-    let (stop_dbip, dbip_stopped) = mpsc::channel();
-    dbip::spawn(data, geo.clone(), dbip_stopped);
+/// The service has no console: it logs to `parcel-service.log` in the data folder, fresh each
+/// start.
+fn log_to_file() -> Result<(), String> {
+    let path = data::dir()
+        .map_err(|e| format!("data folder: {e}"))?
+        .join("parcel-service.log");
+    let file = File::create(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    tracing_subscriber::fmt()
+        .with_env_filter(filter())
+        .with_ansi(false)
+        .with_writer(Mutex::new(file))
+        .init();
+    Ok(())
+}
 
-    let mut npcap = Npcap::default();
-    let mut etw = Etw::default();
-    let mut ports = PortTable::default();
-    let npcap_on = start(&mut npcap, &events);
-    let etw_on = start(&mut etw, &events);
-    start(&mut ports, &events);
-    if !npcap_on && !etw_on {
-        tracing::error!("nothing is capturing: install Npcap or run as administrator");
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let Some(command) = parse(&args) else {
+        eprintln!("{USAGE}");
+        return ExitCode::from(2);
+    };
+    if command == Command::Service {
+        if let Err(e) = log_to_file() {
+            // Nowhere else to say it; the Service Control Manager records the exit code.
+            eprintln!("{e}");
+            return ExitCode::FAILURE;
+        }
+    } else {
+        tracing_subscriber::fmt().with_env_filter(filter()).init();
     }
-
-    let (ticks, _) = broadcast::channel(16);
-    let engine = std::thread::spawn({
-        let ticks = ticks.clone();
-        move || {
-            let mut history = Recorder::new(store);
-            parcel_core::engine::run(&rx, npcap_on, WinProcesses::new(), geo, |tick| {
-                if let Err(e) = history.add(&tick) {
-                    tracing::error!("history: a minute was lost: {e}");
+    let result = match command {
+        Command::Console(record) => {
+            tracing::info!("Ctrl+C to stop");
+            runner::run(record.as_deref(), async {
+                if let Err(e) = tokio::signal::ctrl_c().await {
+                    tracing::error!("Ctrl+C handler: {e}");
+                    std::future::pending::<()>().await;
                 }
-                // No subscribers is normal while the UI is closed.
-                let _ = ticks.send(tick);
-            });
-            if let Err(e) = history.flush() {
-                tracing::error!("history: the last minute was lost: {e}");
-            }
+            })
         }
-    });
-
-    let version = concat!("parcel-service ", env!("CARGO_PKG_VERSION"));
-    tracing::info!("{version} on {PIPE_NAME}, Ctrl+C to stop");
-    let result = runtime.block_on(async {
-        tokio::select! {
-            r = pipe::serve(PIPE_NAME, ticks, version, answer) => r,
-            r = tokio::signal::ctrl_c() => r,
-        }
-    });
-
-    drop(stop_dbip);
-    npcap.stop();
-    etw.stop();
-    ports.stop();
-    drop(events);
-    if engine.join().is_err() {
-        tracing::error!("engine thread panicked");
-        return ExitCode::FAILURE;
-    }
+        Command::Install => service::install(),
+        Command::Uninstall => service::uninstall(),
+        Command::Service => service::dispatch(),
+    };
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -138,37 +96,30 @@ fn console(record: Option<PathBuf>) -> ExitCode {
     }
 }
 
-fn start(source: &mut dyn CaptureSource, events: &mpsc::Sender<Event>) -> bool {
-    match source.start(events.clone()) {
-        Ok(()) => true,
-        Err(e) => {
-            tracing::warn!("{e}");
-            false
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(s: &str) -> Vec<String> {
+        s.split_whitespace().map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn commands_parse() {
+        assert_eq!(parse(&args("console")), Some(Command::Console(None)));
+        assert_eq!(
+            parse(&args("console --record e.jsonl")),
+            Some(Command::Console(Some("e.jsonl".into())))
+        );
+        assert_eq!(parse(&args("install")), Some(Command::Install));
+        assert_eq!(parse(&args("uninstall")), Some(Command::Uninstall));
+        assert_eq!(parse(&args(service::RUN_ARG)), Some(Command::Service));
+    }
+
+    #[test]
+    fn anything_else_is_usage() {
+        for bad in ["", "consol", "console --record", "install now"] {
+            assert_eq!(parse(&args(bad)), None, "{bad:?}");
         }
     }
-}
-
-/// Writes every event to `path` as one JSON line, then passes it on.
-fn recorder(path: &PathBuf, rx: Receiver<Event>) -> std::io::Result<Receiver<Event>> {
-    let mut out = BufWriter::new(File::create(path)?);
-    let (fwd, fwd_rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        for event in rx {
-            let written = serde_json::to_writer(&mut out, &event)
-                .map_err(std::io::Error::from)
-                .and_then(|()| out.write_all(b"\n"));
-            if let Err(e) = written {
-                tracing::error!("recording stopped: {e}");
-                return;
-            }
-            if fwd.send(event).is_err() {
-                break;
-            }
-        }
-        if let Err(e) = out.flush() {
-            tracing::error!("recording: {e}");
-        }
-    });
-    tracing::info!("recording events to {}", path.display());
-    Ok(fwd_rx)
 }

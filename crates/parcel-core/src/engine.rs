@@ -17,6 +17,9 @@ const OWNER_TTL: Millis = 10 * 60_000;
 const NAME_TTL: Millis = 60 * 60_000;
 const APP_TTL: Millis = 5 * 60_000;
 const PRUNE_EVERY: Millis = 60_000;
+/// Bytes whose owner isn't known yet wait this many ticks for it (ETW reports in ~1 s batches,
+/// often after Npcap's packets) before they count as Unknown app (decided 2026-11-23).
+const HOLD_TICKS: u8 = 2;
 
 /// Feeds `events` into an engine and calls `on_tick` at every wall-clock second, until every
 /// sender is dropped.
@@ -65,12 +68,33 @@ impl Rates {
             }
         }
     }
+
+    fn merge(&mut self, other: Rates) {
+        self.down += other.down;
+        self.up += other.up;
+        self.packets_down += other.packets_down;
+        self.packets_up += other.packets_up;
+    }
 }
 
 #[derive(Default)]
 struct Counts {
     total: Rates,
     hosts: HashMap<IpAddr, Rates>,
+}
+
+impl Counts {
+    fn add(&mut self, ip: IpAddr, dir: Dir, bytes: u64, packets: u64) {
+        self.total.add(dir, bytes, packets);
+        self.hosts.entry(ip).or_default().add(dir, bytes, packets);
+    }
+
+    fn absorb(&mut self, other: Counts) {
+        self.total.merge(other.total);
+        for (ip, r) in other.hosts {
+            self.hosts.entry(ip).or_default().merge(r);
+        }
+    }
 }
 
 /// Folds the capture event stream into per-second totals by app and remote host.
@@ -87,6 +111,8 @@ pub struct Engine<P> {
     names: HashMap<IpAddr, (Named, NameSource, Millis)>,
     apps: HashMap<u32, (App, Millis)>,
     second: HashMap<Option<u32>, Counts>,
+    /// Unowned traffic by (protocol, local port), with the ticks it has waited.
+    held: HashMap<(Proto, u16), (u8, Counts)>,
     down: u64,
     up: u64,
     pruned: Millis,
@@ -104,6 +130,7 @@ impl<P: Processes> Engine<P> {
             names: HashMap::new(),
             apps: HashMap::new(),
             second: HashMap::new(),
+            held: HashMap::new(),
             down: 0,
             up: 0,
             pruned: 0,
@@ -128,15 +155,14 @@ impl<P: Processes> Engine<P> {
                 dir,
                 bytes,
             } => {
-                self.owners
-                    .insert((flow.proto, flow.local.port()), (pid, at));
+                self.learn_owner((flow.proto, flow.local.port()), pid, at);
                 if !self.npcap {
                     self.count(Some(pid), flow, dir, bytes, false);
                 }
             }
             Event::Ports { at, owners } => {
                 for o in owners {
-                    self.owners.insert((o.proto, o.port), (o.pid, *at));
+                    self.learn_owner((o.proto, o.port), o.pid, *at);
                 }
             }
             Event::Hostname {
@@ -158,8 +184,38 @@ impl<P: Processes> Engine<P> {
         }
     }
 
+    /// Records `pid` as the owner of `key`, naming its app now: a short-lived process may be
+    /// gone by the end of the second.
+    fn learn_owner(&mut self, key: (Proto, u16), pid: u32, at: Millis) {
+        // pid 0 owns sockets in TIME_WAIT after their process exited: it names no one, and
+        // must not replace the real owner while that process's last bytes are still held.
+        if pid == 0 {
+            return;
+        }
+        self.owners.insert(key, (pid, at));
+        match self.apps.entry(pid) {
+            Entry::Occupied(mut e) => e.get_mut().1 = at,
+            Entry::Vacant(e) => {
+                e.insert((self.processes.app(pid), at));
+            }
+        }
+    }
+
+    /// Moves held traffic to its owner once known, or to Unknown app after `HOLD_TICKS`.
+    fn release_held(&mut self) {
+        for (key, (waited, counts)) in std::mem::take(&mut self.held) {
+            let owner = self.owners.get(&key).map(|&(pid, _)| pid);
+            if owner.is_some() || waited + 1 >= HOLD_TICKS {
+                self.second.entry(owner).or_default().absorb(counts);
+            } else {
+                self.held.insert(key, (waited + 1, counts));
+            }
+        }
+    }
+
     /// Closes the second ending at `at` and starts the next one.
     pub fn tick(&mut self, at: Millis) -> Tick {
+        self.release_held();
         let geo = self.geo.read().expect("geo lock");
         let mut by_path: HashMap<String, (AppRate, HashMap<String, HostRate>)> = HashMap::new();
         for (pid, counts) in self.second.drain() {
@@ -254,12 +310,14 @@ impl<P: Processes> Engine<P> {
             Dir::In => self.down += bytes,
             Dir::Out => self.up += bytes,
         }
-        let c = self.second.entry(pid).or_default();
-        c.total.add(dir, bytes, packets);
-        c.hosts
-            .entry(flow.remote.ip())
-            .or_default()
-            .add(dir, bytes, packets);
+        let counts = match pid {
+            Some(pid) => self.second.entry(Some(pid)).or_default(),
+            None => {
+                let key = (flow.proto, flow.local.port());
+                &mut self.held.entry(key).or_default().1
+            }
+        };
+        counts.add(flow.remote.ip(), dir, bytes, packets);
     }
 
     fn prune(&mut self, now: Millis) {
@@ -394,8 +452,10 @@ mod tests {
     }
 
     #[test]
-    fn packets_before_any_owner_are_unknown() {
-        let tick = engine(true, &[packet(50000, "1.1.1.1", Dir::In, 100)]).tick(1000);
+    fn packets_with_no_owner_become_unknown_after_the_hold() {
+        let mut e = engine(true, &[packet(50000, "1.1.1.1", Dir::In, 100)]);
+        e.tick(1000);
+        let tick = e.tick(2000);
         assert_eq!(tick.apps[0].name, "Unknown app");
         assert_eq!(tick.apps[0].path, "");
     }
@@ -539,7 +599,13 @@ mod tests {
 
     #[test]
     fn tick_starts_a_fresh_second() {
-        let mut e = engine(true, &[packet(50000, "1.1.1.1", Dir::Out, 100)]);
+        let mut e = engine(
+            true,
+            &[
+                transfer(7, 50000, "1.1.1.1", Dir::Out, 1),
+                packet(50000, "1.1.1.1", Dir::Out, 100),
+            ],
+        );
         e.tick(1000);
         assert_eq!(
             e.tick(2000),
@@ -556,10 +622,72 @@ mod tests {
         e.tick(OWNER_TTL + PRUNE_EVERY);
         e.npcap = true;
         e.apply(&packet(50000, "1.1.1.1", Dir::In, 5));
+        e.tick(OWNER_TTL + PRUNE_EVERY + 1000);
         assert_eq!(
-            e.tick(OWNER_TTL + PRUNE_EVERY + 1000).apps[0].name,
+            e.tick(OWNER_TTL + PRUNE_EVERY + 2000).apps[0].name,
             "Unknown app"
         );
+    }
+
+    #[test]
+    fn a_late_owner_claims_held_bytes() {
+        let mut e = engine(true, &[packet(50000, "1.1.1.1", Dir::In, 100)]);
+        assert!(e.tick(1000).apps.is_empty(), "held, not yet unknown");
+        e.apply(&transfer(7, 50000, "1.1.1.1", Dir::Out, 1));
+        assert_eq!(
+            summary(&e.tick(2000)),
+            vec![("app7".into(), 100, 0, vec![("1.1.1.1".into(), 100, 0)])]
+        );
+    }
+
+    #[test]
+    fn time_wait_sockets_owned_by_pid_0_dont_replace_the_owner() {
+        let ports = |pid| Event::Ports {
+            at: 0,
+            owners: vec![PortOwner {
+                proto: Proto::Tcp,
+                port: 50000,
+                pid,
+            }],
+        };
+        let mut e = engine(
+            true,
+            &[ports(7), packet(50000, "1.1.1.1", Dir::In, 100), ports(0)],
+        );
+        assert_eq!(e.tick(1000).apps[0].name, "app7");
+    }
+
+    #[test]
+    fn totals_are_not_held() {
+        let mut e = engine(true, &[packet(50000, "1.1.1.1", Dir::In, 100)]);
+        assert_eq!(e.tick(1000).down, 100);
+    }
+
+    /// A pid that exits right after its traffic, like a short curl download.
+    struct Exits(std::collections::HashSet<u32>);
+
+    impl Processes for Exits {
+        fn app(&mut self, pid: u32) -> App {
+            if self.0.remove(&pid) {
+                App {
+                    path: r"C:\curl.exe".into(),
+                    name: "curl".into(),
+                }
+            } else {
+                App {
+                    path: format!("pid:{pid}"),
+                    name: format!("Process {pid}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_process_is_named_when_first_seen_not_at_the_tick() {
+        let mut e = Engine::new(true, Exits([9].into()), Arc::default());
+        e.apply(&transfer(9, 50000, "1.1.1.1", Dir::Out, 1));
+        e.apply(&packet(50000, "1.1.1.1", Dir::In, 100));
+        assert_eq!(e.tick(1000).apps[0].name, "curl");
     }
 
     #[test]
