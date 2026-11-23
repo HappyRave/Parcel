@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any breaking change to the messages below.
-pub const PROTOCOL: u32 = 3;
+pub const PROTOCOL: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -47,10 +47,16 @@ pub struct AppRate {
 pub struct HostRate {
     /// Hostname from DNS or SNI, else the IP address.
     pub host: String,
-    /// Brand (`YouTube`), else the registered domain; `None` for a bare IP.
+    /// Brand (`YouTube`), else the registered domain, else (bare IP) the network's owner.
     pub service: Option<String>,
     /// Registered domain, for the favicon.
     pub domain: Option<String>,
+    /// ISO 3166-1 alpha-2 country code.
+    pub country: Option<String>,
+    pub city: Option<String>,
+    pub asn: Option<u32>,
+    /// AS organization, e.g. `Google LLC`.
+    pub network: Option<String>,
     pub down: u64,
     pub up: u64,
     pub packets_down: u64,

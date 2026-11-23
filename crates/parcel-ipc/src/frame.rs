@@ -129,6 +129,10 @@ mod tests {
                     host: "cdn.x.com".into(),
                     service: Some("X".into()),
                     domain: Some("x.com".into()),
+                    country: Some("US".into()),
+                    city: None,
+                    asn: Some(13414),
+                    network: Some("X Corp.".into()),
                     down: 2,
                     up: 3,
                     packets_down: 1,
@@ -139,7 +143,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             json,
-            r#"{"kind":"tick","at":1,"down":2,"up":3,"apps":[{"path":"C:\\a.exe","name":"A","down":2,"up":3,"packetsDown":1,"packetsUp":1,"hosts":[{"host":"cdn.x.com","service":"X","domain":"x.com","down":2,"up":3,"packetsDown":1,"packetsUp":1}]}]}"#
+            r#"{"kind":"tick","at":1,"down":2,"up":3,"apps":[{"path":"C:\\a.exe","name":"A","down":2,"up":3,"packetsDown":1,"packetsUp":1,"hosts":[{"host":"cdn.x.com","service":"X","domain":"x.com","country":"US","city":null,"asn":13414,"network":"X Corp.","down":2,"up":3,"packetsDown":1,"packetsUp":1}]}]}"#
         );
     }
 }

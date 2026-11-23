@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 etherparse = "0.21.0"
+maxminddb = { version = "0.33", features = ["mmap"] }
 parcel-ipc.workspace = true
 psl = "2.1.261"
 serde.workspace = true

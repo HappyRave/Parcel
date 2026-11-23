@@ -3,9 +3,11 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, RwLock};
 
 use parcel_core::capture::CaptureSource;
 use parcel_core::event::Event;
+use parcel_core::geo::Geo;
 use parcel_ipc::pipe::{self, PIPE_NAME};
 use tokio::sync::broadcast;
 use tracing_subscriber::EnvFilter;
@@ -17,6 +19,7 @@ use crate::process::WinProcesses;
 
 mod adapters;
 mod capture;
+mod dbip;
 mod process;
 
 const USAGE: &str = "usage: parcel-service console [--record <events.jsonl>]";
@@ -67,11 +70,23 @@ fn console(record: Option<PathBuf>) -> ExitCode {
         tracing::error!("nothing is capturing: install Npcap or run as administrator");
     }
 
+    let data = match dbip::data_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!("data folder: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let geo = Arc::new(RwLock::new(Geo::default()));
+    // Never joined: it may be mid-download at shutdown, and holds nothing that needs closing.
+    let (stop_dbip, dbip_stopped) = mpsc::channel();
+    dbip::spawn(data, geo.clone(), dbip_stopped);
+
     let (ticks, _) = broadcast::channel(16);
     let engine = std::thread::spawn({
         let ticks = ticks.clone();
         move || {
-            parcel_core::engine::run(&rx, npcap_on, WinProcesses::new(), |tick| {
+            parcel_core::engine::run(&rx, npcap_on, WinProcesses::new(), geo, |tick| {
                 // No subscribers is normal while the UI is closed.
                 let _ = ticks.send(tick);
             });
@@ -87,6 +102,7 @@ fn console(record: Option<PathBuf>) -> ExitCode {
         }
     });
 
+    drop(stop_dbip);
     npcap.stop();
     etw.stop();
     ports.stop();

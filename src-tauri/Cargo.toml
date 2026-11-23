@@ -16,4 +16,5 @@ tauri-build = { version = "2", features = [] }
 parcel-ipc = { workspace = true, features = ["pipe"] }
 serde.workspace = true
 tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
 tokio = { workspace = true, features = ["time"] }

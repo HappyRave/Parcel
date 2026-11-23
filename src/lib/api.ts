@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 /** Traffic over one second, in bytes. `at` is the end of that second, ms since the epoch. */
 export interface Tick {
@@ -30,6 +31,12 @@ export interface HostRate {
   service: string | null;
   /** Registered domain, for the favicon. */
   domain: string | null;
+  /** ISO 3166-1 alpha-2. */
+  country: string | null;
+  city: string | null;
+  asn: number | null;
+  /** AS organization, e.g. "Google LLC". */
+  network: string | null;
   down: number;
   up: number;
   packetsDown: number;
@@ -46,6 +53,9 @@ export interface Commands {
 }
 
 export const serviceState = () => invoke<ServiceState>("service_state");
+
+/** Opens DB-IP's site, the attribution its licence asks for. */
+export const openDbIp = () => openUrl("https://db-ip.com");
 
 export const onTick = (cb: (tick: Tick) => void): Promise<UnlistenFn> =>
   listen<Tick>("tick", (e) => cb(e.payload));

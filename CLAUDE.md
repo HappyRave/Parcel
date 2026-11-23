@@ -7,19 +7,32 @@ per remote host, with the company/service logo, geographic origin, packet counts
 The look takes inspiration from GlassWire's mechanics (live traffic graph, per-app / per-host
 breakdown) but is our own design, not a copy of its visuals.
 
-**State (2026-11-23):** capture, attribution and naming work. In console mode the service runs
-Npcap (packets, DNS and SNI names), ETW (per-process transfers + DNS-client names, admin only)
-and a 1 s socket-table poll into the engine, which sends per-second ticks by app and remote host
-over the pipe; the app shows KPIs, an apps table and the selected app's hosts as service · host
-(plain tables, not the lab design). Not built: the ASN step of naming and GeoIP (both need the
-DB-IP files), storage, favicons, the real Windows service, the lab UI. Update this file as
-pieces land.
+**State (2026-11-23):** capture, attribution, naming and GeoIP work. In console mode the service
+runs Npcap (packets, DNS and SNI names), ETW (per-process transfers + DNS-client names, admin
+only) and a 1 s socket-table poll into the engine, which sends per-second ticks by app and
+remote host over the pipe; the app shows KPIs, an apps table and the selected app's hosts as
+service · host with location (stamp + city) and network, plus the DB-IP credit (plain tables,
+not the lab design). Not built: storage, favicons, the real Windows service, the lab UI. Update
+this file as pieces land.
 
 Naming (`naming.rs`): hostname → registered domain (`psl`) → `brands.json` on the registered
 domain, else on the public suffix (so `x.github.io` is GitHub) → service = brand, else the
-registered domain. Bare IPs have no service until the ASN step. `brands.json` (brand → domains,
-200+ domains) is Claude's draft, 2026-11-23, not yet reviewed by the owner; a test keeps every
-entry a lowercase registered domain or public suffix, listed once.
+registered domain. A bare IP's service is its AS organization without legal suffixes
+(`geo::org_name`: "Fastly, Inc." → "Fastly"). `brands.json` (brand → domains, 200+ domains) is
+Claude's draft, 2026-11-23, not yet reviewed by the owner; a test keeps every entry a lowercase
+registered domain or public suffix, listed once.
+
+GeoIP (`geo.rs`, `parcel-service/src/dbip.rs`): DB-IP City Lite + ASN Lite, memory-mapped, in
+the data folder (`PARCEL_DATA`, else `%ProgramData%\Parcel`) as `dbip-{city,asn}-lite-YYYY-MM.mmdb`.
+The service checks daily, downloads the current month (last month's if not published yet) from
+`https://download.db-ip.com/free/<name>.gz`, validates it, swaps it into the engine's
+`Arc<RwLock<Geo>>` and deletes older months. Files are never rewritten in place (that is what
+makes the mmap safe). ASN fields are `autonomous_system_number` / `_organization` (checked
+against the real file; DB-IP's docs don't list them). The ignored test `real_databases_answer`
+runs against real files: `PARCEL_DATA=C:\ProgramData\Parcel cargo test -p parcel-core -- --ignored`.
+The credit "IP Geolocation by DB-IP" links to db-ip.com via `tauri-plugin-opener` (scoped to
+that URL). Lite data is coarse: anycast IPs land anywhere (1.1.1.1 → Sydney), and city names
+can carry a district in parentheses.
 
 Attribution: a flow's owner is keyed by (protocol, local port), learned from ETW transfers and
 the socket-table poll; bytes with no owner yet are "Unknown app" (Claude's pick, 2026-11-23).
@@ -48,7 +61,8 @@ cargo fmt --all; cargo clippy --workspace --all-targets
 crates/parcel-core      portable logic: event.rs (the Event stream), capture.rs (CaptureSource),
                         engine.rs (byte rule, owners, names, per-app / per-host ticks, run loop),
                         packet.rs (Ethernet frame → Packet, DNS reply / TLS SNI → Hostname),
-                        process.rs (App, the Processes trait), naming.rs + brands.json
+                        process.rs (App, the Processes trait), geo.rs (DB-IP lookup),
+                        naming.rs + brands.json
                         (hostname → service); tests/replay.rs replays
                         tests/fixtures/*.jsonl (hand-written, documentation IPs only)
 crates/parcel-ipc       messages.rs (wire types, PROTOCOL), frame.rs (u32 LE length + JSON),
@@ -57,7 +71,8 @@ crates/parcel-ipc       messages.rs (wire types, PROTOCOL), frame.rs (u32 LE len
 crates/parcel-service   binary; `console` starts the sources, engine thread and pipe server until
                         Ctrl+C. capture/npcap.rs (one thread per hardware adapter, adapters.rs
                         matches them by GUID), capture/etw.rs (session `Parcel-KernelNetwork`),
-                        capture/ports.rs (socket-table poll), process.rs (pid → exe path + name).
+                        capture/ports.rs (socket-table poll), process.rs (pid → exe path + name),
+                        dbip.rs (data folder, monthly DB-IP download).
                         build.rs makes wpcap.lib from lib/wpcap.def with lib.exe (needs the VS C++
                         build tools) and delay-loads wpcap.dll
 src-tauri               keeps one pipe Connection, re-emits `tick` and `service` events,

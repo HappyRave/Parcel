@@ -86,6 +86,7 @@ async fn keep_linked(app: AppHandle) {
 /// When Tauri fails to start.
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(Link(Mutex::new(ServiceState::Connecting)))
         .setup(|app| {
             tauri::async_runtime::spawn(keep_linked(app.handle().clone()));

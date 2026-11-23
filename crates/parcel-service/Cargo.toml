@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 ferrisetw = "1.2"
+flate2 = "1"
 parcel-core.workspace = true
 parcel-ipc = { workspace = true, features = ["pipe"] }
 pcap = "2"
@@ -13,6 +14,8 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# No `gzip`: the .mmdb.gz files are decompressed by flate2, never by the HTTP layer.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_LibraryLoader", "Win32_System_Threading"] }
 
 [build-dependencies]

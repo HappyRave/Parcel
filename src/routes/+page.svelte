@@ -1,6 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { onService, onTick, serviceState, type ServiceState, type Tick } from "$lib/api";
+  import {
+    onService,
+    onTick,
+    openDbIp,
+    serviceState,
+    type ServiceState,
+    type Tick,
+  } from "$lib/api";
   import { rate } from "$lib/format";
   import Apps from "$lib/live/Apps.svelte";
 
@@ -42,6 +49,9 @@
         <div class="kpi"><span>Upload</span><b class="num out">↑ {rate(last?.up ?? 0)}</b></div>
       </section>
       <Apps apps={last?.apps ?? []} />
+      <footer>
+        <button class="credit" onclick={() => openDbIp()}>IP Geolocation by DB-IP</button>
+      </footer>
     {:else}
       <p class="todo">{tab} isn't built yet.</p>
     {/if}
@@ -132,5 +142,18 @@
   }
   .todo {
     color: var(--dim);
+  }
+  footer {
+    margin-top: 8px;
+    text-align: right;
+  }
+  .credit {
+    font: 11px var(--ui);
+    color: var(--dim);
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
   }
 </style>

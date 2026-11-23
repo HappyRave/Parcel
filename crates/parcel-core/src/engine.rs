@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::net::IpAddr;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use parcel_ipc::messages::{AppRate, HostRate, Tick};
 
 use crate::event::{Dir, Event, Flow, Millis, NameSource, Proto, now_millis};
+use crate::geo::{Geo, org_name};
 use crate::naming::{Named, Naming};
 use crate::process::{App, Processes};
 
@@ -22,9 +24,10 @@ pub fn run<P: Processes>(
     events: &Receiver<Event>,
     npcap: bool,
     processes: P,
+    geo: Arc<RwLock<Geo>>,
     mut on_tick: impl FnMut(Tick),
 ) {
-    let mut engine = Engine::new(npcap, processes);
+    let mut engine = Engine::new(npcap, processes, geo);
     let mut next = now_millis() / 1000 * 1000 + 1000;
     loop {
         let wait = next.saturating_sub(now_millis());
@@ -78,6 +81,8 @@ pub struct Engine<P> {
     npcap: bool,
     processes: P,
     naming: Naming,
+    /// Swapped by the service when a new month's databases arrive.
+    geo: Arc<RwLock<Geo>>,
     owners: HashMap<(Proto, u16), (u32, Millis)>,
     names: HashMap<IpAddr, (Named, NameSource, Millis)>,
     apps: HashMap<u32, (App, Millis)>,
@@ -89,11 +94,12 @@ pub struct Engine<P> {
 
 impl<P: Processes> Engine<P> {
     #[must_use]
-    pub fn new(npcap: bool, processes: P) -> Self {
+    pub fn new(npcap: bool, processes: P, geo: Arc<RwLock<Geo>>) -> Self {
         Self {
             npcap,
             processes,
             naming: Naming::default(),
+            geo,
             owners: HashMap::new(),
             names: HashMap::new(),
             apps: HashMap::new(),
@@ -154,6 +160,7 @@ impl<P: Processes> Engine<P> {
 
     /// Closes the second ending at `at` and starts the next one.
     pub fn tick(&mut self, at: Millis) -> Tick {
+        let geo = self.geo.read().expect("geo lock");
         let mut by_path: HashMap<String, (AppRate, HashMap<String, HostRate>)> = HashMap::new();
         for (pid, counts) in self.second.drain() {
             let app = match pid {
@@ -181,23 +188,26 @@ impl<P: Processes> Engine<P> {
             rate.packets_down += counts.total.packets_down;
             rate.packets_up += counts.total.packets_up;
             for (ip, r) in counts.hosts {
-                let h = match self.names.get(&ip) {
-                    Some((named, ..)) => {
-                        hosts.entry(named.host.clone()).or_insert_with(|| HostRate {
-                            host: named.host.clone(),
-                            service: named.service.clone(),
-                            domain: named.domain.clone(),
-                            ..HostRate::default()
-                        })
+                let named = self.names.get(&ip).map(|(named, ..)| named);
+                let key = named.map_or_else(|| ip.to_string(), |n| n.host.clone());
+                let h = hosts.entry(key).or_insert_with_key(|host| {
+                    let place = geo.place(ip);
+                    // A bare IP is named after whoever runs its network.
+                    let service = named.map_or_else(
+                        || place.network.as_deref().map(org_name),
+                        |n| n.service.clone(),
+                    );
+                    HostRate {
+                        host: host.clone(),
+                        service,
+                        domain: named.and_then(|n| n.domain.clone()),
+                        country: place.country,
+                        city: place.city,
+                        asn: place.asn,
+                        network: place.network,
+                        ..HostRate::default()
                     }
-                    None => {
-                        let host = ip.to_string();
-                        hosts.entry(host.clone()).or_insert_with(|| HostRate {
-                            host,
-                            ..HostRate::default()
-                        })
-                    }
-                };
+                });
                 h.down += r.down;
                 h.up += r.up;
                 h.packets_down += r.packets_down;
@@ -221,6 +231,7 @@ impl<P: Processes> Engine<P> {
                 .cmp(&(a.down + a.up))
                 .then(a.name.cmp(&b.name))
         });
+        drop(geo);
 
         let tick = Tick {
             at,
@@ -317,7 +328,7 @@ mod tests {
     }
 
     fn engine(npcap: bool, events: &[Event]) -> Engine<Fake> {
-        let mut e = Engine::new(npcap, Fake);
+        let mut e = Engine::new(npcap, Fake, Arc::default());
         for ev in events {
             e.apply(ev);
         }
@@ -503,6 +514,7 @@ mod tests {
                 up: 80,
                 packets_down: 2,
                 packets_up: 1,
+                ..HostRate::default()
             }
         );
         assert_eq!(
@@ -558,7 +570,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(2100));
         });
         let mut ticks = Vec::new();
-        run(&rx, true, Fake, |t| ticks.push(t));
+        run(&rx, true, Fake, Arc::default(), |t| ticks.push(t));
         feeder.join().unwrap();
         assert!(ticks.len() >= 2, "{ticks:?}");
         assert!(ticks.iter().all(|t| t.at % 1000 == 0));

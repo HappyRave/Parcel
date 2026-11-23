@@ -1,9 +1,20 @@
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { AppRate, Commands, ServiceState, Tick } from "$lib/api";
+import type { AppRate, Commands, HostRate, ServiceState, Tick } from "$lib/api";
 
-/** Host, service, registered domain, share of the app's traffic. */
-type MockHost = [string, string | null, string | null, number];
+/** A host's fixed fields, plus its share of the app's traffic. */
+type MockHost = Omit<HostRate, "down" | "up" | "packetsDown" | "packetsUp"> & { share: number };
+
+const host = (
+  name: string,
+  service: string | null,
+  domain: string | null,
+  country: string | null,
+  city: string | null,
+  asn: number | null,
+  network: string | null,
+  share: number,
+): MockHost => ({ host: name, service, domain, country, city, asn, network, share });
 
 const APPS: { path: string; name: string; share: number; hosts: MockHost[] }[] = [
   {
@@ -11,28 +22,33 @@ const APPS: { path: string; name: string; share: number; hosts: MockHost[] }[] =
     name: "Google Chrome",
     share: 0.7,
     hosts: [
-      ["rr3---sn-5hne6nzk.googlevideo.com", "YouTube", "googlevideo.com", 0.8],
-      ["www.youtube.com", "YouTube", "youtube.com", 0.15],
-      ["github.com", "GitHub", "github.com", 0.04],
-      ["cdn.example.org", "example.org", "example.org", 0.01],
+      host("rr3---sn-5hne6nzk.googlevideo.com", "YouTube", "googlevideo.com", "BE", "Brussels", 15169, "Google LLC", 0.8),
+      host("www.youtube.com", "YouTube", "youtube.com", "BE", "Saint-Ghislain", 15169, "Google LLC", 0.15),
+      host("github.com", "GitHub", "github.com", "NL", "Amsterdam", 36459, "GitHub, Inc.", 0.04),
+      host("cdn.example.org", "example.org", "example.org", "US", "Ashburn", 15133, "Edgecast Inc.", 0.01),
     ],
   },
   {
     path: "C:\\Program Files (x86)\\Steam\\steam.exe",
     name: "Steam",
     share: 0.2,
-    hosts: [["cache5-ams1.steamcontent.com", "Steam", "steamcontent.com", 1]],
+    hosts: [host("cache5-ams1.steamcontent.com", "Steam", "steamcontent.com", "NL", "Amsterdam", 32590, "Valve Corporation", 1)],
   },
   {
     path: "C:\\Users\\me\\AppData\\Local\\Discord\\app-1.0\\Discord.exe",
     name: "Discord",
     share: 0.07,
     hosts: [
-      ["gateway.discord.gg", "Discord", "discord.gg", 0.6],
-      ["162.159.135.234", null, null, 0.4],
+      host("gateway.discord.gg", "Discord", "discord.gg", "US", "San Jose", 13335, "Cloudflare, Inc.", 0.6),
+      host("162.159.135.234", "Cloudflare", null, "US", "San Francisco", 13335, "Cloudflare, Inc.", 0.4),
     ],
   },
-  { path: "", name: "Unknown app", share: 0.03, hosts: [["239.255.255.250", null, null, 1]] },
+  {
+    path: "",
+    name: "Unknown app",
+    share: 0.03,
+    hosts: [host("239.255.255.250", null, null, null, null, null, null, 1)],
+  },
 ];
 
 /** Dev-only fake backend: `pnpm dev`, then open `/?mock`. Ticks wobbly traffic every second. */
@@ -43,6 +59,9 @@ export function installMock() {
   };
   mockIPC(
     (cmd) => {
+      if (cmd.startsWith("plugin:opener|")) {
+        return null;
+      }
       const handler = commands[cmd as keyof Commands];
       if (!handler) {
         throw new Error(`mock: no command ${cmd}`);
@@ -64,10 +83,8 @@ export function installMock() {
       up: Math.round(up * a.share),
       packetsDown: Math.round((down * a.share) / 1400),
       packetsUp: Math.round((up * a.share) / 300),
-      hosts: a.hosts.map(([host, service, domain, share]) => ({
-        host,
-        service,
-        domain,
+      hosts: a.hosts.map(({ share, ...h }) => ({
+        ...h,
         down: Math.round(down * a.share * share),
         up: Math.round(up * a.share * share),
         packetsDown: Math.round((down * a.share * share) / 1400),

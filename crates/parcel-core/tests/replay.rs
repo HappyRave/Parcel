@@ -26,7 +26,7 @@ impl Processes for Names {
 fn replay(fixture: &str, npcap: bool) -> Tick {
     let path = format!("{}/tests/fixtures/{fixture}", env!("CARGO_MANIFEST_DIR"));
     let text = std::fs::read_to_string(&path).unwrap();
-    let mut engine = Engine::new(npcap, Names);
+    let mut engine = Engine::new(npcap, Names, Default::default());
     for (i, line) in text.lines().enumerate() {
         let event: Event =
             serde_json::from_str(line).unwrap_or_else(|e| panic!("{fixture}:{}: {e}", i + 1));
