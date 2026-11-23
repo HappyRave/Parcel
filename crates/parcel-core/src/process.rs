@@ -20,6 +20,8 @@ impl App {
 
 /// Looks up which app a process id belongs to (platform code).
 pub trait Processes: Send {
-    /// Always answers; a process that already exited gets a stand-in name.
-    fn app(&mut self, pid: u32) -> App;
+    /// Always answers. `image` is the executable path from the process's start event, when
+    /// seen: it still names a process that has already exited. Without it, an exited process
+    /// gets a stand-in name.
+    fn app(&mut self, pid: u32, image: Option<&str>) -> App;
 }

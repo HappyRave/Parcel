@@ -72,6 +72,8 @@ pub enum Event {
     },
     /// A snapshot of the OS's socket table: which process owns each local port.
     Ports { at: Millis, owners: Vec<PortOwner> },
+    /// A process started from `image` (full path). Lets a process be named after it exits.
+    ProcessStart { at: Millis, pid: u32, image: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -62,8 +62,11 @@ when its pid is first seen, since short-lived ones are gone by the tick. Bytes w
 are held up to 2 ticks and given to their owner if one turns up, else to "Unknown app"
 (decided 2026-11-23, the owner picked "Hold back up to 2 s": ETW delivers in ~1 s batches, often
 after Npcap's packets; holding took a short-download test from 5.7 of 15 MB unknown to none).
-The KPI totals are not held. Still open: a process that exits before ETW's batch names it shows
-as "Process <pid>" (fix: ETW Kernel-Process start events, which carry the image path).
+The KPI totals are not held. ETW's Kernel-Process start events (`Event::ProcessStart`, image
+mapped from `\Device\HarddiskVolumeN\...` to a drive path by `ntpath.rs`) give each pid its exe
+path, so a process that exits before ETW's batch names it is still named; a start event also
+drops the cached app for a reused pid. Verified 2026-11-23: five 0.25 s curl downloads, 15.5 MB,
+all attributed to curl. Without ETW (no admin) an exited process is still "Process <pid>".
 Apps are keyed by exe path (decided 2026-11-23, the owner: "Keep path identity", so two exes
 with one description stay two rows) and named by the exe's `FileDescription` (what Task Manager shows),
 else its file name (Claude's pick; curl shows as "The curl executable"). pids 0 and 4 are
@@ -103,7 +106,9 @@ crates/parcel-service   binary; main.rs parses console / install / uninstall / r
                         starts the sources, engine thread and pipe server until told to stop,
                         service.rs talks to the Service Control Manager, data.rs is the data
                         folder. capture/npcap.rs (one thread per hardware adapter, adapters.rs
-                        matches them by GUID), capture/etw.rs (session `Parcel-KernelNetwork`),
+                        matches them by GUID), capture/etw.rs (session `Parcel-KernelNetwork`:
+                        Kernel-Network, DNS-Client, Kernel-Process), ntpath.rs (device → drive
+                        paths),
                         capture/ports.rs (socket-table poll), process.rs (pid → exe path + name),
                         dbip.rs (monthly DB-IP download), history.rs (answers
                         Request::Usage).

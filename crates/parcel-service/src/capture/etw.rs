@@ -10,10 +10,16 @@ use ferrisetw::trace::{TraceError, UserTrace, stop_trace_by_name};
 use parcel_core::capture::{CaptureError, CaptureSource};
 use parcel_core::event::{Dir, Event, Flow, NameSource, Proto, now_millis};
 
+use crate::ntpath::DeviceMap;
+
 const NAME: &str = "ETW";
 const SESSION: &str = "Parcel-KernelNetwork";
 const KERNEL_NETWORK: &str = "7dd42a49-5329-4832-8dfd-43d979153a88";
 const DNS_CLIENT: &str = "1c95126e-7eea-49a9-a3fe-a378b03ddb4d";
+/// Microsoft-Windows-Kernel-Process: event 1 is ProcessStart, under keyword `WINEVENT_KEYWORD_PROCESS`.
+const KERNEL_PROCESS: &str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
+const PROCESS_KEYWORD: u64 = 0x10;
+const PROCESS_START: u16 = 1;
 /// Send / receive events of Microsoft-Windows-Kernel-Network. Id 18 repeats id 11's bytes.
 const SEND_RECV_IDS: [u16; 8] = [10, 11, 26, 27, 42, 43, 58, 59];
 /// `ERROR_ACCESS_DENIED`, plain and as the HRESULT ferrisetw reports.
@@ -96,6 +102,23 @@ fn result_ips(results: &str) -> impl Iterator<Item = IpAddr> + '_ {
         .map(|ip| ip.to_canonical())
 }
 
+/// A process start with its image as a drive path; `None` when the path isn't on a known drive.
+fn process_start(
+    record: &EventRecord,
+    locator: &SchemaLocator,
+    drives: &DeviceMap,
+) -> Option<Event> {
+    let schema = locator.event_schema(record).ok()?;
+    let p = Parser::create(record, &schema);
+    let pid: u32 = p.try_parse("ProcessID").ok()?;
+    let image: String = p.try_parse("ImageName").ok()?;
+    Some(Event::ProcessStart {
+        at: now_millis(),
+        pid,
+        image: drives.to_dos(&image)?,
+    })
+}
+
 fn start_error(e: TraceError) -> CaptureError {
     match e {
         TraceError::EtwNativeError(EvntraceNativeError::IoError(io))
@@ -130,8 +153,21 @@ impl CaptureSource for Etw {
             })
             .build();
         let dns = Provider::by_guid(DNS_CLIENT)
+            .add_callback({
+                let events = events.clone();
+                move |record: &EventRecord, locator: &SchemaLocator| {
+                    for event in dns_names(record, locator) {
+                        let _ = events.send(event);
+                    }
+                }
+            })
+            .build();
+        let drives = DeviceMap::current();
+        let processes = Provider::by_guid(KERNEL_PROCESS)
+            .any(PROCESS_KEYWORD)
+            .add_filter(EventFilter::ByEventIds(vec![PROCESS_START]))
             .add_callback(move |record: &EventRecord, locator: &SchemaLocator| {
-                for event in dns_names(record, locator) {
+                if let Some(event) = process_start(record, locator, &drives) {
                     let _ = events.send(event);
                 }
             })
@@ -140,10 +176,11 @@ impl CaptureSource for Etw {
             .named(SESSION.to_owned())
             .enable(net)
             .enable(dns)
+            .enable(processes)
             .start_and_process()
             .map_err(start_error)?;
         self.trace = Some(trace);
-        tracing::info!("{NAME}: capturing Kernel-Network transfers and DNS-client names");
+        tracing::info!("{NAME}: capturing transfers, DNS-client names and process starts");
         Ok(())
     }
 

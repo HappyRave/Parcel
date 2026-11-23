@@ -25,14 +25,15 @@ impl WinProcesses {
 }
 
 impl Processes for WinProcesses {
-    fn app(&mut self, pid: u32) -> App {
+    fn app(&mut self, pid: u32, image: Option<&str>) -> App {
         if pid == 0 || pid == 4 {
             return App {
                 path: "System".to_owned(),
                 name: "System".to_owned(),
             };
         }
-        let Some(path) = image_path(pid) else {
+        // The running process first; the start event's image once it has exited.
+        let Some(path) = image_path(pid).or_else(|| image.map(str::to_owned)) else {
             return App {
                 path: format!("pid:{pid}"),
                 name: format!("Process {pid}"),
@@ -144,20 +145,37 @@ mod tests {
 
     #[test]
     fn own_process_is_parcel() {
-        let app = WinProcesses::new().app(std::process::id());
+        let app = WinProcesses::new().app(std::process::id(), None);
         assert_eq!(app.name, "Parcel");
         assert!(app.path.ends_with(".exe"), "{}", app.path);
     }
 
     #[test]
     fn system_pids_are_system() {
-        assert_eq!(WinProcesses::new().app(4).name, "System");
+        assert_eq!(WinProcesses::new().app(4, None).name, "System");
     }
 
     #[test]
     fn gone_process_gets_a_stand_in() {
-        let app = WinProcesses::new().app(u32::MAX - 3);
+        let app = WinProcesses::new().app(u32::MAX - 3, None);
         assert_eq!(app.name, format!("Process {}", u32::MAX - 3));
+    }
+
+    #[test]
+    fn gone_process_is_named_from_its_image() {
+        let root = std::env::var("SystemRoot").unwrap();
+        let cmd = format!(r"{root}\System32\cmd.exe");
+        let app = WinProcesses::new().app(u32::MAX - 3, Some(&cmd));
+        assert_eq!(
+            (app.path, app.name),
+            (cmd, "Windows Command Processor".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_live_process_wins_over_a_stale_image() {
+        let app = WinProcesses::new().app(std::process::id(), Some(r"C:\old\other.exe"));
+        assert_ne!(app.path, r"C:\old\other.exe");
     }
 
     #[test]

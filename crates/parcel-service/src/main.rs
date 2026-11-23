@@ -10,6 +10,7 @@ mod capture;
 mod data;
 mod dbip;
 mod history;
+mod ntpath;
 mod process;
 mod runner;
 mod service;

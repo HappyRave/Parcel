@@ -9,7 +9,7 @@ use parcel_ipc::messages::Tick;
 struct Names;
 
 impl Processes for Names {
-    fn app(&mut self, pid: u32) -> App {
+    fn app(&mut self, pid: u32, _image: Option<&str>) -> App {
         let name = match pid {
             100 => "Browser",
             200 => "Game",

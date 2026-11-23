@@ -110,6 +110,8 @@ pub struct Engine<P> {
     owners: HashMap<(Proto, u16), (u32, Millis)>,
     names: HashMap<IpAddr, (Named, NameSource, Millis)>,
     apps: HashMap<u32, (App, Millis)>,
+    /// Executable paths from process start events, by pid.
+    images: HashMap<u32, (String, Millis)>,
     second: HashMap<Option<u32>, Counts>,
     /// Unowned traffic by (protocol, local port), with the ticks it has waited.
     held: HashMap<(Proto, u16), (u8, Counts)>,
@@ -129,6 +131,7 @@ impl<P: Processes> Engine<P> {
             owners: HashMap::new(),
             names: HashMap::new(),
             apps: HashMap::new(),
+            images: HashMap::new(),
             second: HashMap::new(),
             held: HashMap::new(),
             down: 0,
@@ -181,6 +184,31 @@ impl<P: Processes> Engine<P> {
                         .insert(*ip, (self.naming.name(name), *source, *at));
                 }
             }
+            Event::ProcessStart { at, pid, image } => {
+                // A new process may reuse the pid of one we already named.
+                self.apps.remove(pid);
+                self.images.insert(*pid, (image.clone(), *at));
+            }
+        }
+    }
+
+    /// The app running as `pid`, named once and cached.
+    fn app_of(
+        apps: &mut HashMap<u32, (App, Millis)>,
+        processes: &mut P,
+        images: &HashMap<u32, (String, Millis)>,
+        pid: u32,
+        at: Millis,
+    ) -> App {
+        match apps.entry(pid) {
+            Entry::Occupied(mut e) => {
+                e.get_mut().1 = at;
+                e.get().0.clone()
+            }
+            Entry::Vacant(e) => {
+                let image = images.get(&pid).map(|(image, _)| image.as_str());
+                e.insert((processes.app(pid, image), at)).0.clone()
+            }
         }
     }
 
@@ -193,12 +221,7 @@ impl<P: Processes> Engine<P> {
             return;
         }
         self.owners.insert(key, (pid, at));
-        match self.apps.entry(pid) {
-            Entry::Occupied(mut e) => e.get_mut().1 = at,
-            Entry::Vacant(e) => {
-                e.insert((self.processes.app(pid), at));
-            }
-        }
+        Self::app_of(&mut self.apps, &mut self.processes, &self.images, pid, at);
     }
 
     /// Moves held traffic to its owner once known, or to Unknown app after `HOLD_TICKS`.
@@ -221,13 +244,9 @@ impl<P: Processes> Engine<P> {
         for (pid, counts) in self.second.drain() {
             let app = match pid {
                 None => App::unknown(),
-                Some(pid) => match self.apps.entry(pid) {
-                    Entry::Occupied(mut e) => {
-                        e.get_mut().1 = at;
-                        e.get().0.clone()
-                    }
-                    Entry::Vacant(e) => e.insert((self.processes.app(pid), at)).0.clone(),
-                },
+                Some(pid) => {
+                    Self::app_of(&mut self.apps, &mut self.processes, &self.images, pid, at)
+                }
             };
             let (rate, hosts) = by_path.entry(app.path.clone()).or_insert_with(|| {
                 (
@@ -327,12 +346,18 @@ impl<P: Processes> Engine<P> {
             .retain(|_, (.., seen)| now.saturating_sub(*seen) < NAME_TTL);
         self.apps
             .retain(|_, (_, seen)| now.saturating_sub(*seen) < APP_TTL);
+        // A process that lived longer is still running when it first talks, so its name
+        // comes from the process itself.
+        self.images
+            .retain(|_, (_, seen)| now.saturating_sub(*seen) < OWNER_TTL);
         self.pruned = now;
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use crate::event::PortOwner;
 
@@ -340,7 +365,7 @@ mod tests {
     struct Fake;
 
     impl Processes for Fake {
-        fn app(&mut self, pid: u32) -> App {
+        fn app(&mut self, pid: u32, _image: Option<&str>) -> App {
             let id = if pid == 2 { 1 } else { pid };
             App {
                 path: format!(r"C:\app{id}.exe"),
@@ -664,22 +689,59 @@ mod tests {
     }
 
     /// A pid that exits right after its traffic, like a short curl download.
-    struct Exits(std::collections::HashSet<u32>);
+    struct Exits(HashSet<u32>);
 
+    /// Live pids are curl; a gone pid is named from its start event's image, else a stand-in.
     impl Processes for Exits {
-        fn app(&mut self, pid: u32) -> App {
-            if self.0.remove(&pid) {
-                App {
+        fn app(&mut self, pid: u32, image: Option<&str>) -> App {
+            match (self.0.remove(&pid), image) {
+                (true, _) => App {
                     path: r"C:\curl.exe".into(),
                     name: "curl".into(),
-                }
-            } else {
-                App {
+                },
+                (false, Some(image)) => App {
+                    path: image.into(),
+                    name: image.rsplit('\\').next().unwrap_or(image).into(),
+                },
+                (false, None) => App {
                     path: format!("pid:{pid}"),
                     name: format!("Process {pid}"),
-                }
+                },
             }
         }
+    }
+
+    fn start(pid: u32, image: &str) -> Event {
+        Event::ProcessStart {
+            at: 0,
+            pid,
+            image: image.into(),
+        }
+    }
+
+    #[test]
+    fn an_exited_process_is_named_from_its_start_event() {
+        let mut e = Engine::new(true, Exits(HashSet::new()), Arc::default());
+        e.apply(&start(9, r"C:\Tools\wget.exe"));
+        e.apply(&transfer(9, 50000, "1.1.1.1", Dir::Out, 1));
+        e.apply(&packet(50000, "1.1.1.1", Dir::In, 100));
+        let app = &e.tick(1000).apps[0];
+        assert_eq!(
+            (app.name.as_str(), app.path.as_str()),
+            ("wget.exe", r"C:\Tools\wget.exe")
+        );
+    }
+
+    #[test]
+    fn a_reused_pid_is_named_again() {
+        let mut e = Engine::new(true, Exits([9].into()), Arc::default());
+        e.apply(&transfer(9, 50000, "1.1.1.1", Dir::Out, 1));
+        e.apply(&packet(50000, "1.1.1.1", Dir::In, 100));
+        assert_eq!(e.tick(1000).apps[0].name, "curl");
+        e.apply(&start(9, r"C:\Tools\wget.exe"));
+        e.apply(&transfer(9, 50001, "1.1.1.1", Dir::Out, 1));
+        e.apply(&packet(50001, "1.1.1.1", Dir::In, 100));
+        assert_eq!(e.tick(2000).apps[0].name, "wget.exe");
     }
 
     #[test]
