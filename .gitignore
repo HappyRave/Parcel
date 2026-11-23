@@ -1,0 +1,21 @@
+# Rust
+target/
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+build/
+
+# Npcap import library, generated locally from the installed wpcap.dll (see the README)
+*.lib
+*.exp
+
+# Local data and secrets
+.env
+*.db
+*.log
+
+# OS / editors
+Thumbs.db
+.DS_Store
+.idea/

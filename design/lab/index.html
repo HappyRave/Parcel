@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Parcel lab</title>
+<style>
+:root {
+  --bg: #0c0d10;
+  --win: #121418;
+  --panel: #171a1f;
+  --raise: #1d2127;
+  --line: #262a31;
+  --ink: #e9e6df;
+  --mute: #8b909a;
+  --dim: #5b606a;
+  --in: #4fd1c5;
+  --out: #f0a35e;
+  --kraft: #c8955a;
+  --warn: #f2c14e;
+  --bad: #ef6f6c;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--ui); }
+.page { width: 1260px; margin: 0 auto; padding: 32px 0 80px; }
+h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .2px; }
+h1 small { color: var(--mute); font-weight: 400; font-size: 14px; }
+.lede { color: var(--mute); max-width: 900px; margin: 0 0 8px; }
+.labels { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 28px; }
+.tag { font: 11px var(--mono); padding: 2px 7px; border-radius: 4px; border: 1px solid var(--line); color: var(--mute); }
+.tag.decided { color: #8fd18a; border-color: #2f4a2d; }
+.tag.pick { color: var(--kraft); border-color: #5a4327; }
+.tag.placeholder { color: var(--warn); border-color: #4d4120; }
+.tag.open { color: #9fb7ff; border-color: #2c3657; }
+
+.variant { margin: 48px 0 0; }
+.vhead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.vhead h2 { margin: 0; font-size: 18px; }
+.vhead .code { font: 600 13px var(--mono); color: var(--kraft); }
+.vnote { color: var(--mute); margin: 0 0 12px; max-width: 1000px; }
+.vnote b { color: var(--ink); font-weight: 600; }
+.pickbadge { font: 600 11px var(--mono); color: #1a1206; background: var(--kraft); padding: 2px 8px; border-radius: 3px; transform: rotate(-2deg); display: inline-block; }
+
+/* -- window chrome */
+.win { background: var(--win); border: 1px solid #2a2e36; border-radius: 10px; overflow: hidden; box-shadow: 0 20px 60px #0008; position: relative; }
+.title { height: 34px; display: flex; align-items: center; gap: 10px; padding: 0 0 0 12px; border-bottom: 1px solid var(--line); background: #101216; }
+.brand { display: flex; align-items: center; gap: 7px; font-weight: 600; letter-spacing: .3px; }
+.brand svg { display: block; }
+.status { display: flex; gap: 6px; margin-left: 8px; }
+.pill { font: 11px var(--mono); color: var(--mute); padding: 1px 7px; border: 1px solid var(--line); border-radius: 10px; display: flex; align-items: center; gap: 5px; }
+.pill i { width: 6px; height: 6px; border-radius: 50%; background: #5fd068; display: inline-block; }
+.pill.warn i { background: var(--warn); }
+.pill.bad i { background: var(--bad); }
+.tabs { display: flex; gap: 2px; margin-left: 18px; }
+.tabs span { padding: 5px 10px; color: var(--mute); border-radius: 5px; cursor: default; }
+.tabs span.on { color: var(--ink); background: var(--raise); }
+.spacer { flex: 1; }
+.wbtn { width: 44px; height: 34px; display: grid; place-items: center; color: var(--mute); }
+
+/* -- shared bits */
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.in { color: var(--in); }
+.out { color: var(--out); }
+.mute { color: var(--mute); }
+.fav { width: 18px; height: 18px; border-radius: 4px; display: inline-grid; place-items: center; font: 700 10px var(--ui); color: #fff; flex: none; }
+.fav.lg { width: 22px; height: 22px; font-size: 12px; border-radius: 5px; }
+.stamp { font: 700 10px var(--mono); letter-spacing: .5px; padding: 1px 4px; color: var(--kraft); border: 1.5px dotted var(--kraft); border-radius: 2px; display: inline-block; transform: rotate(-3deg); line-height: 13px; flex: none; }
+.ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; display: flex; }
+.bar b { display: block; height: 100%; }
+
+/* -- A timeline */
+.kpis { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border-bottom: 1px solid var(--line); }
+.kpi { padding: 10px 16px; border-right: 1px solid var(--line); }
+.kpi:last-child { border-right: 0; }
+.kpi .k { font-size: 11px; color: var(--mute); text-transform: lowercase; }
+.kpi .v { font: 600 20px var(--mono); font-variant-numeric: tabular-nums; }
+.kpi .v small { font-size: 12px; color: var(--mute); font-weight: 400; }
+.graphwrap { position: relative; border-bottom: 1px solid var(--line); }
+.graphbar { position: absolute; top: 8px; right: 12px; display: flex; gap: 2px; z-index: 2; }
+.graphbar span { font: 11px var(--mono); padding: 2px 7px; color: var(--mute); border-radius: 4px; }
+.graphbar span.on { background: var(--raise); color: var(--ink); }
+.graphlegend { position: absolute; top: 8px; left: 14px; font: 11px var(--mono); color: var(--mute); display: flex; gap: 14px; z-index: 2; }
+.A .lower { display: grid; grid-template-columns: 340px 1fr; }
+.applist { border-right: 1px solid var(--line); overflow: hidden; }
+.listhead { display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 11px; color: var(--mute); border-bottom: 1px solid var(--line); text-transform: lowercase; }
+.approw { display: grid; grid-template-columns: 22px 1fr auto; gap: 4px 10px; align-items: center; padding: 7px 14px; border-bottom: 1px solid #1b1e23; }
+.approw.on { background: var(--raise); box-shadow: inset 2px 0 0 var(--kraft); }
+.approw .bar { grid-column: 2 / 4; }
+.hosttable { overflow: hidden; }
+.hrow { display: grid; grid-template-columns: 22px minmax(0, 1.7fr) 150px minmax(0, 1fr) 80px 76px 70px 70px; gap: 10px; align-items: center; padding: 6px 14px; border-bottom: 1px solid #1b1e23; }
+.hrow.head { font-size: 11px; color: var(--mute); text-transform: lowercase; padding: 8px 14px; }
+.hrow .svc { display: flex; flex-direction: column; min-width: 0; }
+.hrow .svc b { font-weight: 600; }
+.hrow .svc span { color: var(--mute); font: 11px var(--mono); }
+.loc { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.r { text-align: right; }
+
+/* -- B atlas */
+.B .body { display: grid; grid-template-columns: 1fr 300px; height: 660px; }
+.mapwrap { position: relative; border-right: 1px solid var(--line); overflow: hidden; }
+.mapkpi { position: absolute; left: 16px; top: 14px; display: flex; gap: 22px; z-index: 2; }
+.mapkpi .v { font: 600 22px var(--mono); }
+.mapkpi .k { font-size: 11px; color: var(--mute); }
+.strip { position: absolute; left: 0; right: 0; bottom: 0; height: 96px; border-top: 1px solid var(--line); background: #101216ee; }
+.rail { overflow: hidden; }
+.crow { display: grid; grid-template-columns: 30px 1fr auto; gap: 2px 10px; padding: 9px 14px; border-bottom: 1px solid #1b1e23; align-items: center; }
+.crow .sub { grid-column: 2 / 4; color: var(--mute); font-size: 11px; }
+
+/* -- C flow */
+.C .body { display: grid; grid-template-columns: 1fr 310px; height: 560px; }
+.C .top { height: 110px; border-bottom: 1px solid var(--line); position: relative; }
+.detail { border-left: 1px solid var(--line); padding: 14px; overflow: hidden; }
+.detail h3 { margin: 0 0 2px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.drow { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 7px 0; border-bottom: 1px solid #1b1e23; }
+.drow .ell { font: 11px var(--mono); }
+
+/* -- D manifest */
+.D .win { width: 940px; }
+.chips { display: flex; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); align-items: center; }
+.chip { font: 11px var(--mono); padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--mute); }
+.chip.on { color: var(--ink); border-color: var(--kraft); }
+.mrow { display: grid; grid-template-columns: 58px 74px 150px 14px minmax(0, 1fr) 26px 40px 68px 64px 56px 60px; gap: 8px; align-items: center; height: 27px; padding: 0 12px; border-bottom: 1px solid #191c21; font-size: 12px; }
+.mrow.head { color: var(--mute); font-size: 11px; height: 30px; text-transform: lowercase; }
+.mrow.closed { color: var(--dim); }
+.mrow.closed .fav { opacity: .45; }
+.mrow .app { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.mrow .dest { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.mrow .dest small { color: var(--mute); font: 11px var(--mono); }
+.track { font: 11px var(--mono); color: var(--dim); }
+.section { font: 11px var(--mono); color: var(--kraft); padding: 10px 12px 4px; letter-spacing: .5px; }
+.foot { display: flex; gap: 20px; padding: 9px 12px; border-top: 1px solid var(--line); font: 12px var(--mono); color: var(--mute); }
+
+/* -- states */
+.states { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.state h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+.state h4 span { color: var(--mute); font-weight: 400; }
+.banner { display: flex; gap: 12px; align-items: center; padding: 9px 14px; background: #2a2414; border-bottom: 1px solid #4d4120; color: #f3dca0; font-size: 12px; }
+.btn { font: 600 12px var(--ui); padding: 5px 11px; border-radius: 5px; background: var(--kraft); color: #1a1206; white-space: nowrap; }
+.btn.ghost { background: none; color: var(--ink); border: 1px solid var(--line); font-weight: 400; }
+.center { display: grid; place-items: center; text-align: center; padding: 40px 20px; }
+.questions { margin-top: 48px; padding: 18px 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.questions h2 { margin: 0 0 10px; font-size: 16px; }
+.questions ol { margin: 0; padding-left: 20px; }
+.questions li { margin: 6px 0; }
+
+/* -- R2 */
+.round { margin-top: 80px; padding-top: 24px; border-top: 2px dashed #2a2e36; }
+.qblock { margin-top: 36px; }
+.qblock > h3 { margin: 0 0 4px; font-size: 16px; }
+.qblock > p { color: var(--mute); margin: 0 0 12px; max-width: 1000px; }
+.opts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
+.opts.two { grid-template-columns: 1fr 1fr; }
+.opt { min-width: 0; }
+.opt h4 { margin: 0 0 6px; font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.opt h4 .code { font: 600 12px var(--mono); color: var(--kraft); }
+.opt p { color: var(--mute); font-size: 12px; margin: 6px 0 0; }
+.light { --win: #f7f5f0; --panel: #ffffff; --raise: #ece8df; --line: #e0dbd0; --ink: #1d1f23; --mute: #6b6e75; --dim: #a5a7ad; --in: #0e9488; --out: #c8691a; --kraft: #a4702f; color: var(--ink); }
+.light .title { background: #efece4; }
+.light.win { border-color: #d9d3c6; box-shadow: 0 20px 60px #0006; }
+.plainchip { font: 600 10px var(--mono); padding: 1px 5px; border-radius: 3px; background: var(--raise); color: var(--mute); }
+.flyout { width: 360px; background: #15171c; border: 1px solid #2a2e36; border-radius: 10px; box-shadow: 0 20px 60px #000a; overflow: hidden; }
+.taskbar { height: 34px; background: #1b1d22cc; border-top: 1px solid #2a2e36; display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding: 0 12px; margin-top: 10px; border-radius: 0 0 8px 8px; font: 11px var(--mono); color: var(--mute); }
+.r3 .stamp { transform: none; }
+.light.pal-frost { --win: #f3f5f7; --panel: #ffffff; --raise: #e6eaee; --line: #dde2e7; --ink: #15181c; --mute: #5f6670; --dim: #9aa1aa; --in: #0b8f86; --out: #cc6b18; --kraft: #9a6a2c; }
+.light.pal-frost .title { background: #eaedf0; }
+.light.pal-kraft { --win: #eee3cf; --panel: #f6eddc; --raise: #e2d4b9; --line: #d8c7a6; --ink: #2a2116; --mute: #6f6150; --dim: #a8987d; --in: #0d8a7f; --out: #b85d12; --kraft: #8a5a1e; }
+.light.pal-kraft .title { background: #e6d8bd; }
+.swatches { display: flex; gap: 4px; padding: 8px 12px; border-top: 1px solid var(--line); }
+.swatches i { width: 22px; height: 14px; border-radius: 3px; border: 1px solid #0002; display: inline-block; }
+.sheet { position: absolute; inset: 34px 0 0 0; background: #0009; display: flex; justify-content: flex-end; }
+.sheet .panel { width: 330px; background: var(--panel); border-left: 1px solid var(--line); padding: 14px 16px; overflow: hidden; }
+.setrow { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); gap: 10px; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; font-size: 11px; }
+.seg span { padding: 3px 8px; color: var(--mute); }
+.seg span.on { background: var(--raise); color: var(--ink); }
+.sethead { font: 11px var(--mono); color: var(--kraft); margin: 14px 0 2px; letter-spacing: .5px; }
+.checkrow { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); text-align: left; }
+.light .approw.on { background: #e9e4d8; }
+.light .approw, .light .hrow { border-bottom-color: #ebe6dc; }
+.light .flyout { background: #fbfaf7; }
+.desk { background: linear-gradient(135deg, #1a2330, #2b2233); border-radius: 8px; padding: 18px 18px 0; display: flex; flex-direction: column; align-items: flex-end; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>Parcel lab <small>R1 · main window</small></h1>
+<p class="lede">Four different ideas for what Parcel opens to. The mechanics come from GlassWire (a live graph,
+then who is talking to whom); the look is our own. Same mock data in every variant. Logos are placeholder
+monograms: the real ones are each site's favicon, fetched directly from the site (decided). Countries are shown as postage-stamp ISO codes,
+because Windows doesn't render flag emoji.</p>
+<div class="labels">
+  <span class="tag decided">decided: Windows first · Npcap + ETW · DB-IP · favicons · SQLite history</span>
+  <span class="tag decided">verdict 2026-11-23, owner: "A, with B/C tabs"</span>
+  <span class="tag pick">Claude's pick: A</span>
+  <span class="tag">proposal: everything on this page</span>
+  <span class="tag placeholder">placeholder: all numbers, palette, wordmark</span>
+</div>
+
+<!-- ============================================================ A -->
+<section class="variant A">
+  <div class="vhead"><span class="code">A</span><h2>Timeline</h2><span class="pickbadge">CLAUDE'S PICK</span></div>
+  <p class="vnote"><b>Idea:</b> one mirrored graph across the top (download above the line, upload below), with
+  apps on the left and the hosts the selected app talks to on the right. Everything answers "what's happening now, and who".
+  <b>Why the pick:</b> it reads in two seconds, it scales from a quiet PC to a 4K stream, and the map (B) and flow (C) views can
+  become tabs later without changing this layout.</p>
+  <div class="win" id="A"></div>
+</section>
+
+<!-- ============================================================ B -->
+<section class="variant B">
+  <div class="vhead"><span class="code">B</span><h2>Atlas</h2></div>
+  <p class="vnote"><b>Idea:</b> geography first. A dotted world map with an arc from you to every remote host; parcels (dots) travel
+  the arcs as traffic flows, and thicker arcs carry more bytes. Countries are ranked on the right; a thin live graph runs along the bottom.
+  <b>Strong:</b> the most "wow", and instantly shows where data goes. <b>Weak:</b> apps are secondary, and the map is crowded by large
+  CDNs that all sit in the same few cities. The map outline here is a rough placeholder.</p>
+  <div class="win" id="B"></div>
+</section>
+
+<!-- ============================================================ C -->
+<section class="variant C">
+  <div class="vhead"><span class="code">C</span><h2>Flow</h2></div>
+  <p class="vnote"><b>Idea:</b> apps on the left pour into companies on the right; ribbon width is bytes in the selected range.
+  Selecting a ribbon lists its hosts. <b>Strong:</b> answers "which app talks to which company" in one picture, including
+  surprises (a game talking to an ad network). <b>Weak:</b> poor for "right now"; it needs a time range to be meaningful.</p>
+  <div class="win" id="C"></div>
+</section>
+
+<!-- ============================================================ D -->
+<section class="variant D">
+  <div class="vhead"><span class="code">D</span><h2>Manifest</h2></div>
+  <p class="vnote"><b>Idea:</b> a compact live shipping log. One row per connection, newest first, each with a tracking number;
+  active connections on top, recently closed ones fading below. No graph, a small window. <b>Strong:</b> densest and the most
+  "Parcel"; great as a mini mode next to work. <b>Weak:</b> no overview of volume over time; long sessions become a wall of rows.</p>
+  <div class="win" id="D"></div>
+</section>
+
+<!-- ============================================================ states -->
+<section class="variant">
+  <div class="vhead"><span class="code">A</span><h2>States for the pick</h2></div>
+  <p class="vnote">The cases that change the screen: no Npcap (running on the ETW fallback), the service not running, nothing happening, and the
+  longest names with the biggest numbers.</p>
+  <div class="states">
+    <div class="state"><h4>1 · No Npcap <span>(ETW fallback)</span></h4><div class="win" id="S1"></div></div>
+    <div class="state"><h4>2 · Service not running</h4><div class="win" id="S2"></div></div>
+    <div class="state"><h4>3 · All quiet</h4><div class="win" id="S3"></div></div>
+    <div class="state"><h4>4 · Stress <span>(longest names, biggest numbers)</span></h4><div class="win" id="S4"></div></div>
+  </div>
+</section>
+
+<div class="questions">
+  <h2>Open questions</h2>
+  <ol>
+    <li><b>Which variant</b>, or which mix (e.g. A as the home screen with B and C as tabs, D as a mini mode)?</li>
+    <li><b>Graph:</b> mirrored download / upload (as in A), or stacked by app colours?</li>
+    <li><b>Theme:</b> dark only, or dark + light?</li>
+    <li><b>Postage stamps</b> for countries and the parcel touches (tracking numbers, moving dots): keep, tone down, or drop?</li>
+    <li><b>Parcel's own favicon traffic:</b> hidden, or listed under Parcel like any other app?</li>
+  </ol>
+</div>
+
+<!-- ============================================================ R2 -->
+<section class="round">
+  <h1>R2 <small>· the four questions R1 left open</small></h1>
+  <p class="lede">Each question gets its own options and one Claude's pick. Same mock data as R1.</p>
+  <div class="labels"><span class="tag decided">verdict 2026-11-23, owner: graph "mirrored, download and upload by app. Setting to just show 2 colors" (not drawn yet) · "T2" · "P2" · "M3"</span></div>
+
+  <div class="qblock">
+    <h3>Graph: how download and upload are drawn</h3>
+    <p>The home graph in A. "Mirrored" keeps download above the line and upload below; app colours answer "who" without opening the list.</p>
+    <div class="opts">
+      <div class="opt"><h4><span class="code">G1</span>Mirrored, two colours</h4><div class="win" id="G1"></div><p>As R1. Clearest for in vs out; "who" is only in the list below.</p></div>
+      <div class="opt"><h4><span class="code">G2</span>Mirrored, download by app <span class="pickbadge">CLAUDE'S PICK</span></h4><div class="win" id="G2"></div><p>Download split into the top 4 apps + "other"; upload stays one colour (it's small). In vs out and "who" in one look.</p></div>
+      <div class="opt"><h4><span class="code">G3</span>Stacked by app, total only</h4><div class="win" id="G3"></div><p>One area per app, download + upload together. Simplest "who", but upload disappears.</p></div>
+    </div>
+  </div>
+
+  <div class="qblock">
+    <h3>Theme</h3>
+    <p>The colours are CSS variables either way; the cost of light is designing and checking every screen twice.</p>
+    <div class="opts two">
+      <div class="opt"><h4><span class="code">T1</span>Dark only <span class="pickbadge">CLAUDE'S PICK</span></h4><div class="win" id="T1"></div><p>Graph colours glow on dark; one look to polish. Light can come later from the same variables.</p></div>
+      <div class="opt"><h4><span class="code">T2</span>Dark + light, follows Windows</h4><div class="win light" id="T2"></div><p>Fits a light Windows setup; doubles every design round and the review of every state.</p></div>
+    </div>
+  </div>
+
+  <div class="qblock">
+    <h3>Parcel touches</h3>
+    <p>Postage-stamp country codes, tracking numbers on connections, parcels travelling the map arcs.</p>
+    <div class="opts">
+      <div class="opt"><h4><span class="code">P1</span>All in</h4><div class="win" id="P1"></div><p>Tilted stamps, tracking numbers on every connection, parcels on the map.</p></div>
+      <div class="opt"><h4><span class="code">P2</span>Stamps + map parcels <span class="pickbadge">CLAUDE'S PICK</span></h4><div class="win" id="P2"></div><p>Stamps stay (they carry the country) but sit straight; tracking numbers go (no meaning to the user); parcels stay on the Map tab only.</p></div>
+      <div class="opt"><h4><span class="code">P3</span>Plain</h4><div class="win" id="P3"></div><p>Grey country chips, no parcels. Clean, but loses the quirk.</p></div>
+    </div>
+  </div>
+
+  <div class="qblock">
+    <h3>Mini mode (from D Manifest)</h3>
+    <p>Something small for "is anything talking right now" without the full window.</p>
+    <div class="opts">
+      <div class="opt"><h4><span class="code">M1</span>None</h4><div id="M1"></div><p>Just the main window and a plain tray icon. Least to build.</p></div>
+      <div class="opt"><h4><span class="code">M2</span>Mini window, always on top</h4><div id="M2"></div><p>A compact Manifest you park in a corner. Live rows, current speed.</p></div>
+      <div class="opt"><h4><span class="code">M3</span>Tray flyout <span class="pickbadge">CLAUDE'S PICK</span></h4><div id="M3"></div><p>Click the tray icon: speed, a 60 s graph and the top apps; closes when you click away. The Windows way, nothing to park.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ R3 -->
+<section class="round r3">
+  <h1>R3 <small>· the decided graph, in dark and light</small></h1>
+  <p class="lede">Decided in R2: download above the line and upload below, <b>both split by app</b>, by-app as the default, a setting
+  for plain two colours, dark + light following Windows, straight stamps. The open part is <b>scale</b>: upload is usually 20 to
+  50 times smaller than download, so on one shared scale it's a sliver. Each option is drawn in both themes.</p>
+  <div class="labels"><span class="tag decided">decided: by app (default) + two-colour setting · T2 · P2 · M3 · Parcel's own traffic listed as Parcel</span>
+  <span class="tag decided">verdict 2026-11-23, owner: "H3"</span>
+  <span class="tag pick">Claude's pick: H3</span><span class="tag placeholder">placeholder: light palette values</span></div>
+
+  <div class="qblock">
+    <h3>Upload scale</h3>
+    <p>Same 5 minutes: download peaks at 4.1 MB/s, upload at 120 KB/s.</p>
+    <div class="opts">
+      <div class="opt"><h4><span class="code">H1</span>One scale</h4><div class="win" id="H1d"></div><div class="win light" id="H1l" style="margin-top:10px"></div>
+        <p>Honest: you see that upload is tiny. But which app uploads is unreadable most of the time.</p></div>
+      <div class="opt"><h4><span class="code">H2</span>Own scale for upload</h4><div class="win" id="H2d"></div><div class="win light" id="H2l" style="margin-top:10px"></div>
+        <p>Each half fills its own space; the axis labels on the left say the scales differ. Readable, but a 120 KB/s upload looks as big as a 4 MB/s download.</p></div>
+      <div class="opt"><h4><span class="code">H3</span>Own scale, quieter upload <span class="pickbadge">CLAUDE'S PICK</span></h4><div class="win" id="H3d"></div><div class="win light" id="H3l" style="margin-top:10px"></div>
+        <p>Own scale, but the upload half is shorter and paler, so download stays the headline while "who uploads" stays readable.</p></div>
+    </div>
+  </div>
+
+  <div class="qblock">
+    <h3>The pick on the home screen, light theme</h3>
+    <p>A with H3, P2 stamps, and Parcel listed as an app (its favicon downloads). The graph toggle shows the two-colour setting.</p>
+    <div class="win light A" id="R3home"></div>
+  </div>
+
+  <div class="qblock">
+    <h3>The two-colour setting</h3>
+    <div class="opts two">
+      <div class="opt"><div class="win" id="TwoD"></div></div>
+      <div class="opt"><div class="win light" id="TwoL"></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ R4 -->
+<section class="round r3">
+  <h1>R4 <small>· the remaining screens</small></h1>
+  <p class="lede">Light palette, the History tab, first run without Npcap, and Settings. v1 is monitor only (no alerts, no
+  blocking), so none of these screens has alert or firewall controls.</p>
+  <div class="labels"><span class="tag decided">decided: v1 monitor only · Windows service · first-run card + ETW · 24 h / 30 d / forever · DB-IP monthly</span>
+  <span class="tag decided">verdict 2026-11-23, owner: L1 · Y1 · O2 · S1; build Map / Flow from R1 B / C and the flyout from R2 M3</span>
+  <span class="tag pick">Claude's picks: L1 · Y1 · O2 · S1</span></div>
+
+  <div class="qblock">
+    <h3>Light palette</h3>
+    <p>Same home crop, three light palettes. Dark stays as it is.</p>
+    <div class="opts">
+      <div class="opt"><h4><span class="code">L1</span>Paper <span class="pickbadge">CLAUDE'S PICK</span></h4><div class="win light" id="L1"></div><p>Warm off-white, the dark theme's warm ink inverted. Calm, and the kraft accent still reads.</p></div>
+      <div class="opt"><h4><span class="code">L2</span>Frost</h4><div class="win light pal-frost" id="L2"></div><p>Cool neutral grey like Windows 11's own apps. Blends in; loses the warmth.</p></div>
+      <div class="opt"><h4><span class="code">L3</span>Kraft</h4><div class="win light pal-kraft" id="L3"></div><p>Tinted like packing paper. The most "Parcel"; a tinted background makes app colours a little muddier.</p></div>
+    </div>
+  </div>
+
+  <div class="qblock">
+    <h3>History tab</h3>
+    <p>Looking back over the 30 days of hourly data and the daily data kept indefinitely.</p>
+    <div class="opts">
+      <div class="opt"><h4><span class="code">Y1</span>Timeline + range <span class="pickbadge">CLAUDE'S PICK</span></h4><div class="win" id="Y1"></div><p>Daily bars by app in the same mirrored language as Live; drag to select a range, and the tables below follow it.</p></div>
+      <div class="opt"><h4><span class="code">Y2</span>Calendar</h4><div class="win" id="Y2"></div><p>A month grid shaded by volume; click a day for its graph and top lists. Good for "which day", weak for trends.</p></div>
+      <div class="opt"><h4><span class="code">Y3</span>Daily receipts</h4><div class="win" id="Y3"></div><p>One card per day: totals, top apps, countries. Very readable, but hard to compare across weeks.</p></div>
+    </div>
+  </div>
+
+  <div class="qblock">
+    <h3>First run without Npcap</h3>
+    <p>Decided: detect Npcap, link to npcap.com, ETW captures meanwhile. How it's shown:</p>
+    <div class="opts two">
+      <div class="opt"><h4><span class="code">O1</span>Banner on the home screen</h4><div class="win" id="O1"></div><p>Straight into the app; the banner stays until Npcap is installed (as in R1 state 1).</p></div>
+      <div class="opt"><h4><span class="code">O2</span>Welcome once, then the banner <span class="pickbadge">CLAUDE'S PICK</span></h4><div class="win" id="O2"></div><p>A short checklist on first launch explains what Npcap adds; skipping it falls back to the O1 banner.</p></div>
+    </div>
+  </div>
+
+  <div class="qblock">
+    <h3>Settings</h3>
+    <p>What v1 needs: theme, graph mode, service and Npcap status, DB-IP data, history size.</p>
+    <div class="opts two">
+      <div class="opt"><h4><span class="code">S1</span>Sheet from a gear in the title bar <span class="pickbadge">CLAUDE'S PICK</span></h4><div class="win" id="S1set"></div><p>Few settings, so one sheet over the app is enough; closes back to where you were.</p></div>
+      <div class="opt"><h4><span class="code">S2</span>A fifth tab</h4><div class="win" id="S2set"></div><p>Room to grow, but a tab for six settings is heavy, and it sits next to data tabs it isn't like.</p></div>
+    </div>
+  </div>
+
+  <div class="questions">
+    <h2>Also to confirm</h2>
+    <ol>
+      <li>The Map and Flow tabs as drawn in R1 (B Atlas, C Flow), with R2's P2 rules (straight stamps, parcels on the map). Refine later, or now?</li>
+      <li>The tray flyout as drawn in R2 (M3).</li>
+    </ol>
+  </div>
+</section>
+</div>
+
+<script>
+const MB = 1048576;
+const apps = [
+  { name: "Google Chrome", exe: "chrome.exe", c: "#4f8df5", L: "C", inB: 18.68 * MB, outB: 0.81 * MB },
+  { name: "Steam", exe: "steam.exe", c: "#5a6b8a", L: "S", inB: 2.02 * MB, outB: 0.05 * MB },
+  { name: "Claude", exe: "claude.exe", c: "#d97757", L: "C", inB: 0.34 * MB, outB: 0.12 * MB },
+  { name: "Discord", exe: "discord.exe", c: "#6f7cf0", L: "D", inB: 0.12 * MB, outB: 0.04 * MB },
+  { name: "Windows Update", exe: "svchost.exe", c: "#3aa0d8", L: "W", inB: 0.09 * MB, outB: 0.01 * MB },
+  { name: "Spotify", exe: "spotify.exe", c: "#2fbf5f", L: "S", inB: 0.08 * MB, outB: 0.01 * MB },
+  { name: "OneDrive", exe: "onedrive.exe", c: "#3b82c4", L: "O", inB: 0.02 * MB, outB: 0.03 * MB },
+  { name: "Microsoft Edge WebView2", exe: "msedgewebview2.exe", c: "#2fa7a0", L: "E", inB: 0.01 * MB, outB: 0.01 * MB },
+];
+const hosts = [
+  { brand: "YouTube", host: "rr2---sn-u125g5-5w.googlevideo.com", c: "#e5413a", L: "Y", cc: "US", city: "Mountain View", lon: -122, lat: 37, asn: "AS15169 Google LLC", proto: "QUIC", pk: 4812, inB: 6.65 * MB, outB: 0.11 * MB },
+  { brand: "GitHub", host: "github.githubassets.com", c: "#8b949e", L: "G", cc: "NL", city: "Amsterdam", lon: 5, lat: 52, asn: "AS54113 Fastly, Inc.", proto: "TLS", pk: 3390, inB: 4.51 * MB, outB: 0.06 * MB },
+  { brand: "Google", host: "www.google.com", c: "#4f8df5", L: "G", cc: "BE", city: "Saint-Ghislain", lon: 4, lat: 50.5, asn: "AS15169 Google LLC", proto: "QUIC", pk: 2710, inB: 3.61 * MB, outB: 0.2 * MB },
+  { brand: "YouTube", host: "rr1---sn-2o25g5-55.googlevideo.com", c: "#e5413a", L: "Y", cc: "IE", city: "Dublin", lon: -6, lat: 53, asn: "AS15169 Google LLC", proto: "QUIC", pk: 2201, inB: 2.95 * MB, outB: 0.05 * MB },
+  { brand: "YouTube", host: "www.youtube.com", c: "#e5413a", L: "Y", cc: "BE", city: "Saint-Ghislain", lon: 4, lat: 50.5, asn: "AS15169 Google LLC", proto: "QUIC", pk: 1320, inB: 1.64 * MB, outB: 0.18 * MB },
+  { brand: "YouTube", host: "i.ytimg.com", c: "#e5413a", L: "Y", cc: "DE", city: "Frankfurt", lon: 8.7, lat: 50, asn: "AS15169 Google LLC", proto: "QUIC", pk: 1080, inB: 1.34 * MB, outB: 0.03 * MB },
+  { brand: "Wikipedia", host: "upload.wikimedia.org", c: "#c9c9c9", L: "W", cc: "NL", city: "Amsterdam", lon: 4.9, lat: 52.4, asn: "AS14907 Wikimedia Foundation", proto: "TLS", pk: 260, inB: 0.26 * MB, outB: 0.02 * MB },
+  { brand: "Anthropic", host: "api.anthropic.com", c: "#d97757", L: "A", cc: "US", city: "Ashburn", lon: -77, lat: 39, asn: "AS399358 Anthropic, PBC", proto: "TLS", pk: 512, inB: 0.46 * MB, outB: 0.12 * MB },
+  { brand: "Fastly", host: "151.101.65.140", c: "#555b66", L: "?", cc: "US", city: "San Francisco", lon: -122.4, lat: 37.8, asn: "AS54113 Fastly, Inc.", proto: "TLS", pk: 190, inB: 0.19 * MB, outB: 0.01 * MB },
+  { brand: "Steam", host: "cache4-ams1.steamcontent.com", c: "#5a6b8a", L: "S", cc: "NL", city: "Amsterdam", lon: 4.8, lat: 52.3, asn: "AS32590 Valve Corporation", proto: "HTTP", pk: 1500, inB: 2.02 * MB, outB: 0.05 * MB },
+  { brand: "Discord", host: "gateway.discord.gg", c: "#6f7cf0", L: "D", cc: "US", city: "San Jose", lon: -121.9, lat: 37.3, asn: "AS13335 Cloudflare, Inc.", proto: "TLS", pk: 140, inB: 0.12 * MB, outB: 0.04 * MB },
+  { brand: "Microsoft", host: "tlu.dl.delivery.mp.microsoft.com", c: "#3aa0d8", L: "M", cc: "GB", city: "London", lon: -0.1, lat: 51.5, asn: "AS8075 Microsoft Corporation", proto: "HTTP", pk: 70, inB: 0.09 * MB, outB: 0.01 * MB },
+  { brand: "Spotify", host: "audio-ak.spotifycdn.com", c: "#2fbf5f", L: "S", cc: "SE", city: "Stockholm", lon: 18, lat: 59.3, asn: "AS16625 Akamai Technologies", proto: "TLS", pk: 60, inB: 0.08 * MB, outB: 0.01 * MB },
+  { brand: "Datadog", host: "http-intake.logs.us5.datadoghq.com", c: "#7a4fc9", L: "D", cc: "US", city: "Council Bluffs", lon: -95.8, lat: 41.2, asn: "AS396982 Google Cloud", proto: "TLS", pk: 44, inB: 0.02 * MB, outB: 0.09 * MB },
+];
+const chromeHosts = hosts.filter(h => !["Steam", "Discord", "Microsoft", "Spotify", "Anthropic"].includes(h.brand));
+
+const fmtB = b => b >= 1024 ** 3 ? (b / 1024 ** 3).toFixed(1) + " GB" : b >= MB ? (b / MB).toFixed(2) + " MB" : (b / 1024).toFixed(0) + " KB";
+const fmtN = n => n.toLocaleString("en-US");
+const fav = (o, lg) => `<span class="fav${lg ? " lg" : ""}" style="background:${o.c}">${o.L}</span>`;
+const stamp = cc => `<span class="stamp">${cc}</span>`;
+const box = (s = 16) => `<svg width="${s}" height="${s}" viewBox="0 0 16 16"><path d="M8 1.5 14 4.5v7L8 14.5 2 11.5v-7z" fill="none" stroke="#c8955a" stroke-width="1.4" stroke-linejoin="round"/><path d="M2 4.5 8 7.5l6-3M8 7.5v7" fill="none" stroke="#c8955a" stroke-width="1.4" stroke-linejoin="round"/><path d="M5 3l6 3" stroke="#e9e6df" stroke-width="1.2"/></svg>`;
+
+function titlebar(tabs, pills, onTab = 0) {
+  const p = (pills || [["", "npcap"], ["", "etw"], ["", "service"]]).map(([k, t]) => `<span class="pill ${k}"><i></i>${t}</span>`).join("");
+  const t = tabs ? `<div class="tabs">${tabs.map((x, i) => `<span class="${i === onTab ? "on" : ""}">${x}</span>`).join("")}</div>` : "";
+  return `<div class="title"><div class="brand">${box()}parcel</div>${t}<div class="status">${p}</div><div class="spacer"></div>
+  <div class="wbtn">&#8211;</div><div class="wbtn">&#9633;</div><div class="wbtn">&#10005;</div></div>`;
+}
+
+// smooth fake traffic: download bursts (video segments) + a low upload floor
+function series(n, seed, quiet) {
+  let s = seed;
+  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+  const a = [];
+  let v = 0.4;
+  for (let i = 0; i < n; i++) {
+    v += (rnd() - 0.5) * 0.35;
+    v = Math.max(0.08, Math.min(1, v));
+    const burst = rnd() > 0.8 ? 0.3 + rnd() * 0.6 : 0;
+    a.push(quiet ? { d: 0.004 + rnd() * 0.01, u: 0.002 + rnd() * 0.004 } : { d: Math.min(1, v * 0.6 + burst), u: 0.05 + rnd() * 0.12 });
+  }
+  return a;
+}
+
+function mirrorGraph(w, h, data, opts = {}) {
+  const mid = h * (opts.split || 0.68);
+  const x = i => (i / (data.length - 1)) * w;
+  const up = data.map((p, i) => `${x(i).toFixed(1)},${(mid - p.d * (mid - 22)).toFixed(1)}`);
+  const dn = data.map((p, i) => `${x(i).toFixed(1)},${(mid + p.u * (h - mid - 6) * 3).toFixed(1)}`);
+  const grid = [0.25, 0.5, 0.75].map(f => `<line x1="0" x2="${w}" y1="${mid - f * (mid - 22)}" y2="${mid - f * (mid - 22)}" style="stroke:var(--raise)"/>`).join("");
+  const ticks = opts.ticks ? opts.ticks.map((t, i) => `<text x="${(i / (opts.ticks.length - 1)) * (w - 40) + 6}" y="${h - 6}" style="fill:var(--dim)" font-size="10" font-family="Cascadia Mono,Consolas,monospace">${t}</text>`).join("") : "";
+  const hover = opts.hover ? `<line x1="${w * 0.78}" x2="${w * 0.78}" y1="20" y2="${h - 16}" style="stroke:var(--kraft)" stroke-dasharray="2 3"/>
+    <g transform="translate(${w * 0.78 + 8},26)"><rect width="150" height="46" rx="5" style="fill:var(--raise);stroke:var(--line)"/>
+    <text x="10" y="17" style="fill:var(--mute)" font-size="10" font-family="Cascadia Mono,Consolas,monospace">14:32:08</text>
+    <text x="10" y="35" style="fill:var(--in)" font-size="12" font-family="Cascadia Mono,Consolas,monospace">&#8595; 4.1 MB/s</text>
+    <text x="84" y="35" style="fill:var(--out)" font-size="12" font-family="Cascadia Mono,Consolas,monospace">&#8593; 96 KB/s</text></g>` : "";
+  const area = opts.stack ? stackedAreas(w, mid, data, opts.stack) : `<polygon points="0,${mid} ${up.join(" ")} ${w},${mid}" fill="url(#gi${opts.id})"/>
+    <polyline points="${up.join(" ")}" fill="none" style="stroke:var(--in)" stroke-width="1.4"/>`;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block">
+    <defs><linearGradient id="gi${opts.id}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" style="stop-color:var(--in)" stop-opacity=".55"/><stop offset="1" style="stop-color:var(--in)" stop-opacity=".04"/></linearGradient>
+    <linearGradient id="go${opts.id}" x1="0" x2="0" y1="1" y2="0"><stop offset="0" style="stop-color:var(--out)" stop-opacity=".6"/><stop offset="1" style="stop-color:var(--out)" stop-opacity=".05"/></linearGradient></defs>
+    ${grid}
+    ${area}
+    <polygon points="0,${mid} ${dn.join(" ")} ${w},${mid}" fill="url(#go${opts.id})"/>
+    <polyline points="${dn.join(" ")}" fill="none" style="stroke:var(--out)" stroke-width="1.2"/>
+    <line x1="0" x2="${w}" y1="${mid}" y2="${mid}" style="stroke:var(--dim)" stroke-opacity=".6"/>
+    ${ticks}${hover}</svg>`;
+}
+
+// download split into per-app bands (shares drift over time), stacked from the axis up
+function stackedAreas(w, mid, data, shares) {
+  const x = i => (i / (data.length - 1)) * w;
+  let base = data.map(() => 0), out = "";
+  shares.forEach((s, k) => {
+    const top = data.map((p, i) => base[i] + p.d * s.share * (1 + 0.35 * Math.sin(i / 9 + k * 2)));
+    const norm = k === shares.length - 1 ? data.map(p => p.d) : data.map((p, i) => Math.min(top[i], p.d));
+    const yt = norm.map((v, i) => `${x(i).toFixed(1)},${(mid - v * (mid - 22)).toFixed(1)}`);
+    const yb = base.map((v, i) => `${x(i).toFixed(1)},${(mid - v * (mid - 22)).toFixed(1)}`).reverse();
+    out += `<polygon points="${yt.join(" ")} ${yb.join(" ")}" fill="${s.c}" fill-opacity=".75"/>`;
+    base = norm;
+  });
+  return out;
+}
+
+function spark(seed, w = 64, h = 16, color = "#4fd1c5") {
+  const d = series(24, seed);
+  const pts = d.map((p, i) => `${(i / 23) * w},${h - p.d * (h - 2)}`).join(" ");
+  return `<svg width="${w}" height="${h}"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2"/></svg>`;
+}
+
+function kpis(vals) {
+  const k = vals || [["download", "4.1", "MB/s", "in"], ["upload", "96", "KB/s", "out"], ["today ↓", "26.2", "GB", ""], ["today ↑", "1.41", "GB", ""], ["packets / min", "30,072", "", ""], ["talking now", "9", "apps · 42 hosts", ""]];
+  return `<div class="kpis">${k.map(([a, b, c, cls]) => `<div class="kpi"><div class="k">${a}</div><div class="v ${cls}">${b} <small>${c}</small></div></div>`).join("")}</div>`;
+}
+
+function appList(list, sel = 0) {
+  const max = list[0].inB + list[0].outB;
+  return `<div class="applist"><div class="listhead"><span>apps</span><div class="spacer"></div><span>last 5 min</span></div>
+  ${list.map((a, i) => `<div class="approw ${i === sel ? "on" : ""}">${fav(a, true)}<div class="ell"><b style="font-weight:600">${a.name}</b> <span class="mute num" style="font-size:11px">${a.exe}</span></div>
+  <div class="num" style="font-size:12px"><span class="in">${fmtB(a.inB)}</span></div>
+  <div class="bar"><b style="width:${(a.inB / max) * 100}%;background:var(--in)"></b><b style="width:${(a.outB / max) * 100}%;background:var(--out)"></b></div></div>`).join("")}</div>`;
+}
+
+function hostTable(list, title) {
+  return `<div class="hosttable"><div class="listhead"><span>${title}</span><div class="spacer"></div><span>sorted by ↓</span></div>
+  <div class="hrow head"><span></span><span>service · host</span><span>location</span><span>network</span><span class="r">packets</span><span class="r">↓</span><span class="r">↑</span><span>60 s</span></div>
+  ${list.map((h, i) => `<div class="hrow">${fav(h)}<div class="svc ell"><b class="ell">${h.brand}</b><span class="ell" title="${h.host}">${h.host}</span></div>
+  <div class="loc">${stamp(h.cc)}<span class="ell">${h.city}</span></div><div class="ell mute" title="${h.asn}">${h.asn}</div>
+  <div class="num r">${fmtN(h.pk)}</div><div class="num r in">${fmtB(h.inB)}</div><div class="num r out">${fmtB(h.outB)}</div><div>${spark(i * 7 + 3)}</div></div>`).join("")}</div>`;
+}
+
+// -- A
+document.getElementById("A").innerHTML = titlebar(["Live", "Map", "Flow", "History"]) + kpis() +
+  `<div class="graphwrap"><div class="graphlegend"><span class="in">▲ download</span><span class="out">▼ upload</span></div>
+  <div class="graphbar"><span class="on">5m</span><span>1h</span><span>24h</span><span>30d</span></div>
+  ${mirrorGraph(1258, 210, series(150, 7), { id: "A", hover: true, ticks: ["-5:00", "-4:00", "-3:00", "-2:00", "-1:00", "now"] })}</div>
+  <div class="lower">${appList(apps)}${hostTable(chromeHosts.slice(0, 7),"Google Chrome is talking to")}</div>`;
+
+// -- B
+const WORLD = [
+  "..........XXXXXXXXX....XXXXX...............XXXXXXXXXXXXXXXXXXXXXXXX....",
+  "....XXXXXXXXXXXXXXXXX..XXXXX.........XX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX..",
+  "..XXXXXXXXXXXXXXXXXXXX..XXX..........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX..",
+  ".....XXXXXXXXXXXXXXXXXX.............XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX....",
+  ".........XXXXXXXXXXXXXXX.X.........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.......",
+  "..........XXXXXXXXXXXXXXXX........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.......",
+  "...........XXXXXXXXXXXXXX.........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.......",
+  "...........XXXXXXXXXXXXX..........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX........",
+  "............XXXXXXXXXXX..........XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.........",
+  ".............XXXXXXXX...........XXXXXXXXXXXXXXXXXXXXXXXXXXXXX...........",
+  "..............XXXXX.X...........XXXXXXXXXXXXXXXXXXXXXXXXXXX.............",
+  "...............XXXX.............XXXXXXXXXXXXX.XXXXXXXXXXX...............",
+  "................XXX..............XXXXXXXXXXX...XXXXXXXXX................",
+  "..................XXXX...........XXXXXXXXXXX....XX..XXXX.................",
+  "...................XXXXXX..........XXXXXXXXX.........XXXXXX.............",
+  "...................XXXXXXX..........XXXXXXX..........XXXXXXXX...........",
+  "....................XXXXXXX.........XXXXXX............XXXXXXXX..........",
+  "....................XXXXXXX.........XXXXXX.................XXX..........",
+  ".....................XXXXXX.........XXXXX..............XXXXXXXX.........",
+  ".....................XXXXX...........XXXX.X............XXXXXXXXX........",
+  ".....................XXXX............XXX.............XXXXXXXXXX........",
+  ".....................XXX.............XX...............XXXXXXXXX........",
+  ".....................XX..............................XX...XXX..........",
+  ".....................XX.........................................X......",
+  ".....................X..........................................X.......",
+  ".....................X..................................................",
+  "......................X.................................................",
+];
+function atlas(w, h, id, parcels = true) {
+  const px = lon => ((lon + 180) / 360) * w;
+  const py = lat => ((75 - lat) / 135) * h;
+  let dots = "";
+  WORLD.forEach((row, r) => [...row.padEnd(72, ".").slice(0, 72)].forEach((ch, c) => {
+    if (ch === "X") dots += `<circle cx="${(c + 0.5) * (w / 72)}" cy="${(r + 0.5) * (h / 27)}" r="2.3" fill="#323842"/>`;
+  }));
+  const home = { x: px(4.4), y: py(50.8) };
+  const groups = {};
+  hosts.forEach(hst => { const k = hst.city; (groups[k] ||= { ...hst, inB: 0 }).inB += hst.inB; });
+  const max = Math.max(...Object.values(groups).map(g => g.inB));
+  let arcs = "", ends = "";
+  const labelled = [];
+  Object.values(groups).forEach((g, i) => {
+    const x = px(g.lon), y = py(g.lat);
+    const dx = x - home.x, dist = Math.hypot(dx, y - home.y);
+    if (dist < 8) { ends += `<circle cx="${home.x}" cy="${home.y}" r="${7 + (g.inB / max) * 8}" fill="none" stroke="#4fd1c5" stroke-opacity=".5"/>`; return; }
+    const cx = (x + home.x) / 2, cy = Math.min(y, home.y) - dist * 0.32;
+    const d = `M${x},${y} Q${cx},${cy} ${home.x},${home.y}`;
+    const sw = 0.8 + (g.inB / max) * 4;
+    arcs += `<path id="arc${id}${i}" d="${d}" fill="none" stroke="#4fd1c5" stroke-opacity=".45" stroke-width="${sw}"/>`;
+    for (let k = 0; k < (parcels ? 3 : 0); k++) arcs += `<rect width="5" height="5" rx="1" fill="#c8955a"><animateMotion dur="${2.2 + (i % 4) * 0.5}s" begin="${k * 0.8}s" repeatCount="indefinite" rotate="auto"><mpath href="#arc${id}${i}"/></animateMotion></rect>`;
+    const crowded = labelled.some(p => Math.hypot(p.x - x, p.y - y) < 40);
+    if (!crowded) labelled.push({ x, y });
+    ends += `<circle cx="${x}" cy="${y}" r="3.5" fill="#4fd1c5"/>` + (crowded ? "" : `<text x="${x + 7}" y="${y + 14}" fill="#8b909a" font-size="11" font-family="Segoe UI,system-ui">${g.city}</text>`);
+  });
+  return `<svg width="${w}" height="${h}" style="display:block">${dots}${arcs}${ends}
+    <circle cx="${home.x}" cy="${home.y}" r="5" fill="#c8955a"/><text x="${home.x - 8}" y="${home.y + 20}" fill="#e9e6df" font-size="11" font-weight="600" font-family="Segoe UI,system-ui">you</text></svg>`;
+}
+const byCountry = {};
+hosts.forEach(h => { const g = (byCountry[h.cc] ||= { cc: h.cc, inB: 0, n: 0, brands: new Set() }); g.inB += h.inB; g.n++; g.brands.add(h.brand); });
+const countries = Object.values(byCountry).sort((a, b) => b.inB - a.inB);
+const cname = { US: "United States", NL: "Netherlands", BE: "Belgium", IE: "Ireland", DE: "Germany", GB: "United Kingdom", SE: "Sweden" };
+document.getElementById("B").innerHTML = titlebar(["Map", "Live", "Flow", "History"]) +
+  `<div class="body"><div class="mapwrap"><div class="mapkpi"><div><div class="v in">4.1 <small class="mute" style="font-size:12px">MB/s ↓</small></div><div class="k">7 countries · 42 hosts</div></div>
+  <div><div class="v out">96 <small class="mute" style="font-size:12px">KB/s ↑</small></div><div class="k">furthest: Council Bluffs, 7,150 km</div></div></div>
+  <div style="padding:70px 10px 0">${atlas(940, 470, "B")}</div>
+  <div class="strip">${mirrorGraph(958, 96, series(150, 7), { id: "B", split: 0.7 })}</div></div>
+  <div class="rail"><div class="listhead"><span>countries</span><div class="spacer"></div><span>last 5 min</span></div>
+  ${countries.map(c => `<div class="crow">${stamp(c.cc)}<b style="font-weight:600">${cname[c.cc]}</b><span class="num in">${fmtB(c.inB)}</span>
+  <span class="sub ell">${[...c.brands].join(" · ")}</span></div>`).join("")}</div></div>`;
+
+// -- C
+function flow(w, h) {
+  const left = apps.slice(0, 6), comp = {};
+  const links = [
+    [0, "Google", 15.4], [0, "GitHub", 4.5], [0, "Wikimedia", 0.3], [0, "Fastly", 0.2], [0, "Datadog", 0.1],
+    [1, "Valve", 2.0], [2, "Anthropic", 0.5], [3, "Cloudflare", 0.16], [4, "Microsoft", 0.1], [5, "Akamai", 0.09],
+  ];
+  links.forEach(([, c, v]) => comp[c] = (comp[c] || 0) + v);
+  const right = Object.entries(comp).sort((a, b) => b[1] - a[1]);
+  const total = links.reduce((s, l) => s + l[2], 0);
+  const gap = 10, minH = 16;
+  const scale = (h - gap * 10 - minH * 6) / total;
+  const hgt = v => Math.max(minH, v * scale);
+  let y = 0; const L = left.map((a, i) => { const v = links.filter(l => l[0] === i).reduce((s, l) => s + l[2], 0); const n = { a, y, h: hgt(v), off: 0 }; y += n.h + gap; return n; });
+  y = 0; const R = {}; right.forEach(([c, v]) => { R[c] = { c, v, y, h: hgt(v), off: 0 }; y += R[c].h + gap; });
+  const x0 = 170, x1 = w - 170;
+  let ribbons = "";
+  links.forEach(([i, c, v], k) => {
+    const a = L[i], b = R[c];
+    const ha = a.h * (v / links.filter(l => l[0] === i).reduce((s, l) => s + l[2], 0));
+    const hb = b.h * (v / b.v);
+    const ya = a.y + a.off, yb = b.y + b.off; a.off += ha; b.off += hb;
+    const m = (x0 + x1) / 2;
+    const sel = k === 0;
+    ribbons += `<path d="M${x0},${ya} C${m},${ya} ${m},${yb} ${x1},${yb} L${x1},${yb + hb} C${m},${yb + hb} ${m},${ya + ha} ${x0},${ya + ha} Z" fill="${a.a.c}" fill-opacity="${sel ? 0.55 : 0.22}" ${sel ? 'stroke="#c8955a" stroke-width="1.2"' : ""}/>`;
+  });
+  const lab = (x, y, t, anchor, sub) => `<text x="${x}" y="${y}" text-anchor="${anchor}" fill="#e9e6df" font-size="12" font-family="Segoe UI,system-ui" font-weight="600">${t}</text><text x="${x}" y="${y + 14}" text-anchor="${anchor}" fill="#8b909a" font-size="10" font-family="Cascadia Mono,Consolas,monospace">${sub}</text>`;
+  const nodesL = L.map(n => `<rect x="${x0 - 6}" y="${n.y}" width="6" height="${n.h}" fill="${n.a.c}" rx="1"/>${lab(x0 - 14, n.y + n.h / 2 - 2, n.a.name, "end", fmtB(n.a.inB + n.a.outB))}`).join("");
+  const nodesR = Object.values(R).map(n => `<rect x="${x1}" y="${n.y}" width="6" height="${n.h}" fill="#c8955a" rx="1"/>${lab(x1 + 14, n.y + n.h / 2 - 2, n.c, "start", n.v.toFixed(2) + " MB")}`).join("");
+  return `<svg width="${w}" height="${h}" style="display:block;margin:18px 0 0">${ribbons}${nodesL}${nodesR}</svg>`;
+}
+const ghosts = chromeHosts.filter(h => h.asn.includes("Google"));
+document.getElementById("C").innerHTML = titlebar(["Flow", "Live", "Map", "History"]) +
+  `<div class="top"><div class="graphlegend"><span class="in">▲ download</span><span class="out">▼ upload</span></div>
+  <div class="graphbar"><span>5m</span><span class="on">1h</span><span>24h</span><span>30d</span></div>${mirrorGraph(1258, 110, series(150, 11), { id: "C", split: 0.72 })}</div>
+  <div class="body"><div style="padding:0 10px">${flow(930, 500)}</div>
+  <div class="detail"><h3>${fav(apps[0], true)} Google Chrome <span class="mute">→</span> Google</h3>
+  <div class="mute num" style="font-size:11px;margin-bottom:10px">15.40 MB ↓ · 0.57 MB ↑ · 12,123 packets · last hour</div>
+  ${ghosts.map(h => `<div class="drow"><div style="display:flex;gap:7px;align-items:center;min-width:0">${fav(h)}<span class="ell">${h.host}</span></div><span class="num in" style="font-size:12px">${fmtB(h.inB)}</span>
+  <div class="mute" style="font-size:11px;display:flex;gap:6px;align-items:center">${stamp(h.cc)} ${h.city} · ${h.proto}</div><span class="num mute" style="font-size:11px">${fmtN(h.pk)} pk</span></div>`).join("")}
+  <div class="mute" style="font-size:11px;margin-top:12px">Grouped by company: brand table first, then the ASN owner.</div></div></div>`;
+
+// -- D
+const now = [
+  ["14:32:08", "PCL-7F3A", 0, 0, "QUIC", 4812], ["14:32:07", "PCL-7F39", 0, 3, "QUIC", 2201], ["14:32:05", "PCL-7F36", 1, 9, "HTTP", 1500],
+  ["14:32:01", "PCL-7F31", 0, 1, "TLS", 3390], ["14:31:58", "PCL-7F2C", 2, 7, "TLS", 512], ["14:31:55", "PCL-7F28", 0, 5, "QUIC", 1080],
+  ["14:31:51", "PCL-7F22", 3, 10, "TLS", 140], ["14:31:40", "PCL-7F17", 5, 12, "TLS", 60],
+];
+const closed = [
+  ["14:31:22", "PCL-7EF0", 0, 6, "TLS", 260], ["14:31:05", "PCL-7EE1", 4, 11, "HTTP", 70], ["14:30:47", "PCL-7EC9", 0, 13, "TLS", 44], ["14:30:31", "PCL-7EB2", 0, 8, "TLS", 190],
+];
+const mrow = ([t, id, ai, hi, proto, pk], cls, k) => {
+  const a = apps[ai], h = hosts[hi];
+  return `<div class="mrow ${cls}"><span class="num mute">${t}</span><span class="track">${id}</span><div class="app">${fav(a)}<span class="ell">${a.name}</span></div><span class="mute">→</span>
+  <div class="dest">${fav(h)}<span class="ell"><b style="font-weight:600">${h.brand}</b> <small>${h.host}</small></span></div>${stamp(h.cc)}<span class="num mute" style="font-size:11px">${proto}</span>
+  <span class="num r">${fmtN(pk)}</span><span class="num r ${cls ? "" : "in"}">${fmtB(h.inB)}</span><span class="num r ${cls ? "" : "out"}">${fmtB(h.outB)}</span>${cls ? "<span></span>" : spark(k * 5 + 2, 56)}</div>`;
+};
+document.getElementById("D").innerHTML = titlebar(null, [["", "live"]]) +
+  `<div class="chips"><span class="chip on">all apps</span><span class="chip">chrome</span><span class="chip">steam</span><span class="chip">claude</span><span class="chip">+5</span>
+  <div class="spacer"></div><span class="num" style="font-size:12px"><span class="in">↓ 4.1 MB/s</span> &nbsp; <span class="out">↑ 96 KB/s</span></span></div>
+  <div class="mrow head"><span>opened</span><span>tracking</span><span>from</span><span></span><span>to</span><span></span><span>proto</span><span class="r">packets</span><span class="r">↓</span><span class="r">↑</span><span>60 s</span></div>
+  <div class="section">IN TRANSIT · ${now.length}</div>${now.map((r, k) => mrow(r, "", k)).join("")}
+  <div class="section" style="color:var(--dim)">DELIVERED · last 2 min</div>${closed.map(r => mrow(r, "closed")).join("")}
+  <div class="foot"><span>today</span><span class="in">↓ 26.2 GB</span><span class="out">↑ 1.41 GB</span><span>1,204 connections</span><div class="spacer"></div><span>expand ⤢</span></div>`;
+
+// -- states
+const miniHead = pills => titlebar(null, pills);
+document.getElementById("S1").innerHTML = miniHead([["", "etw"], ["warn", "no npcap"], ["", "service"]]) +
+  `<div class="banner">Running on ETW only. Bytes per app work; packet counts and most hostnames need Npcap.<div class="spacer"></div><span class="btn">Get Npcap</span><span class="btn ghost">Why?</span></div>
+  ${mirrorGraph(618, 110, series(80, 5), { id: "S1" })}
+  <div class="hrow head" style="grid-template-columns:22px 1fr 70px 70px"><span></span><span>service · host</span><span class="r">packets</span><span class="r">↓</span></div>
+  ${[hosts[8], hosts[6], hosts[1]].map((h, i) => `<div class="hrow" style="grid-template-columns:22px 1fr 70px 70px">${fav(i === 0 ? h : { c: "#3a3f48", L: "?" })}<div class="svc ell"><b>${h.asn.split(" ").slice(1).join(" ")}</b><span>${["151.101.65.140", "185.15.59.224", "185.199.109.215"][i]}</span></div><div class="num r mute">n/a</div><div class="num r in">${fmtB(h.inB)}</div></div>`).join("")}
+  <div class="mute" style="font-size:11px;padding:8px 14px">Without hostnames, names come from the network owner (ASN).</div>`;
+document.getElementById("S2").innerHTML = miniHead([["bad", "service stopped"]]) +
+  `<div class="center" style="height:290px"><div>${box(42)}<h3 style="margin:12px 0 4px">Parcel's capture service isn't running</h3>
+  <p class="mute" style="margin:0 0 14px;max-width:360px">It records traffic in the background, even with this window closed. Starting it needs admin once.</p>
+  <span class="btn">Start service</span> &nbsp; <span class="btn ghost">Open logs</span></div></div>`;
+document.getElementById("S3").innerHTML = miniHead() +
+  `${kpis([["download", "0", "B/s", "in"], ["upload", "0.2", "KB/s", "out"], ["talking now", "2", "apps", ""]])}
+  ${mirrorGraph(618, 110, series(80, 3, true), { id: "S3" })}
+  <div class="center" style="height:120px"><div><div style="font-size:15px;font-weight:600">All quiet.</div><div class="mute">Nothing but a few keep-alives in the last 5 minutes.</div></div></div>`;
+const stress = [
+  { brand: "Microsoft Edge WebView2 Runtime", host: "rr5---sn-4g5lznlz.c.drive.google.com.edgekey-staging-very-long-hostname.net", c: "#2fa7a0", L: "E", cc: "US", city: "Council Bluffs", asn: "AS16509 Amazon.com, Inc. (Amazon Data Services Ireland Limited)", pk: 98765432, inB: 1284.6 * 1024 ** 3, outB: 211.4 * 1024 ** 3 },
+  { brand: "?", host: "2a00:1450:400e:80e::200e", c: "#3a3f48", L: "?", cc: "NL", city: "'s-Hertogenbosch", asn: "AS15169 Google LLC", pk: 1204331, inB: 87.2 * 1024 ** 3, outB: 3.1 * 1024 ** 3 },
+];
+document.getElementById("S4").innerHTML = miniHead() +
+  `${kpis([["download", "1,184", "MB/s", "in"], ["today ↓", "1,284.6", "GB", ""], ["packets / min", "9,876,543", "", ""]])}
+  <div class="hrow head" style="grid-template-columns:22px minmax(0,1.6fr) 120px 84px 78px"><span></span><span>service · host</span><span>location</span><span class="r">packets</span><span class="r">↓</span></div>
+  ${stress.map(h => `<div class="hrow" style="grid-template-columns:22px minmax(0,1.6fr) 120px 84px 78px">${fav(h)}<div class="svc ell"><b class="ell">${h.brand}</b><span class="ell" title="${h.host}">${h.host}</span></div>
+  <div class="loc">${stamp(h.cc)}<span class="ell">${h.city}</span></div><div class="num r">${fmtN(h.pk)}</div><div class="num r in">${fmtB(h.inB)}</div></div>`).join("")}
+  <div class="mute" style="font-size:11px;padding:8px 14px">Long names truncate with the full text on hover. Above 999 GB the unit stays GB (no TB) so columns don't jump. (proposal)</div>`;
+
+// -- R2
+const shares = [
+  { name: "Chrome", c: "#4f8df5", share: 0.6 }, { name: "Steam", c: "#8796b3", share: 0.16 },
+  { name: "Claude", c: "#d97757", share: 0.09 }, { name: "Discord", c: "#8f98f5", share: 0.06 }, { name: "other", c: "#5b606a", share: 0.09 },
+];
+const legend = list => `<div class="graphlegend" style="position:static;padding:8px 12px 0;flex-wrap:wrap;gap:10px">${list}</div>`;
+const sw = (c, t) => `<span style="display:flex;align-items:center;gap:4px"><i style="width:8px;height:8px;border-radius:2px;background:${c};display:inline-block"></i>${t}</span>`;
+const g = series(90, 7);
+document.getElementById("G1").innerHTML = legend(`<span class="in">▲ download</span><span class="out">▼ upload</span>`) + mirrorGraph(408, 170, g, { id: "G1" });
+document.getElementById("G2").innerHTML = legend(shares.map(s => sw(s.c, s.name)).join("") + `<span class="out">▼ upload</span>`) + mirrorGraph(408, 170, g, { id: "G2", stack: shares });
+document.getElementById("G3").innerHTML = legend(shares.map(s => sw(s.c, s.name)).join("") + `<span class="mute">↓+↑</span>`) +
+  mirrorGraph(408, 170, g.map(p => ({ d: Math.min(1, p.d + p.u * 0.3), u: 0 })), { id: "G3", stack: shares, split: 0.96 });
+
+const themeCrop = id => titlebar(["Live", "Map", "Flow", "History"], [["", "capturing"]]) +kpis([["download", "4.1", "MB/s", "in"], ["upload", "96", "KB/s", "out"], ["talking now", "9", "apps", ""]]) +
+  legend(`<span class="in">▲ download</span><span class="out">▼ upload</span>`) + mirrorGraph(620, 120, g, { id }) +
+  hosts.slice(0, 3).map(h => `<div class="hrow" style="grid-template-columns:22px minmax(0,1fr) 130px 70px 64px">${fav(h)}<div class="svc ell"><b class="ell">${h.brand}</b><span class="ell">${h.host}</span></div>
+  <div class="loc">${stamp(h.cc)}<span class="ell">${h.city}</span></div><div class="num r in">${fmtB(h.inB)}</div><div class="num r out">${fmtB(h.outB)}</div></div>`).join("");
+document.getElementById("T1").innerHTML = themeCrop("T1");
+document.getElementById("T2").innerHTML = themeCrop("T2");
+
+const touchRows = (kind) => [0, 1, 7].map((i, k) => {
+  const h = hosts[i];
+  const cc = kind === "P3" ? `<span class="plainchip">${h.cc}</span>` : kind === "P2" ? `<span class="stamp" style="transform:none">${h.cc}</span>` : stamp(h.cc);
+  const track = kind === "P1" ? `<span class="track">PCL-7F3${k}</span>` : "";
+  return `<div class="hrow" style="grid-template-columns:22px minmax(0,1fr) ${kind === "P1" ? "62px " : ""}120px">${fav(h)}<div class="svc ell"><b class="ell">${h.brand}</b><span class="ell">${h.host}</span></div>${track}<div class="loc">${cc}<span class="ell">${h.city}</span></div></div>`;
+}).join("");
+["P1", "P2", "P3"].forEach(p => {
+  document.getElementById(p).innerHTML = touchRows(p) + `<div class="listhead" style="border-top:1px solid var(--line)"><span>map tab</span></div>` + atlas(408, 170, p, p !== "P3");
+});
+
+const tray = inner => `<div class="desk">${inner}<div class="taskbar" style="align-self:stretch;margin:10px -18px 0">${box(14)} <span class="in">↓4.1</span><span class="out">↑0.1</span> MB/s &nbsp; 14:32</div></div>`;
+document.getElementById("M1").innerHTML = `<div>${tray(`<div style="height:150px;display:flex;align-items:flex-end"><div class="pill" style="background:#15171c">Parcel · ↓ 4.1 MB/s ↑ 96 KB/s</div></div>`)}</div>`;
+document.getElementById("M2").innerHTML = tray(`<div class="win" style="width:330px">
+  <div class="title" style="height:28px">${box(13)}<span class="num" style="font-size:12px"><span class="in">↓ 4.1 MB/s</span> <span class="out">↑ 96 KB/s</span></span><div class="spacer"></div><span class="mute" style="padding:0 10px">📌 ✕</span></div>
+  ${[[0, 0], [0, 1], [1, 9], [2, 7], [3, 10]].map(([a, hh]) => `<div style="display:grid;grid-template-columns:18px 14px 18px 1fr 60px;gap:6px;align-items:center;height:26px;padding:0 10px;border-bottom:1px solid #1b1e23;font-size:12px">${fav(apps[a])}<span class="mute">→</span>${fav(hosts[hh])}<span class="ell">${hosts[hh].brand} <span class="mute num" style="font-size:11px">${hosts[hh].host}</span></span><span class="num r in">${fmtB(hosts[hh].inB)}</span></div>`).join("")}
+  </div>`);
+document.getElementById("M3").innerHTML = tray(`<div class="flyout">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 12px 0"><div class="brand">${box(14)}parcel</div><span class="num"><span class="in">↓ 4.1 MB/s</span> <span class="out">↑ 96 KB/s</span></span></div>
+  ${mirrorGraph(358, 64, series(60, 9), { id: "M3" })}
+  ${apps.slice(0, 4).map(a => `<div class="approw" style="padding:5px 12px">${fav(a)}<div class="ell">${a.name}</div><div class="num in" style="font-size:12px">${fmtB(a.inB)}</div></div>`).join("")}
+  <div class="foot" style="justify-content:space-between"><span>today ↓ 26.2 GB</span><span style="color:var(--kraft)">open Parcel ↗</span></div></div>`);
+
+// -- R3
+const downShares = [
+  { name: "Chrome", c: "#4f8df5", share: 0.6 }, { name: "Steam", c: "#8796b3", share: 0.16 },
+  { name: "Claude", c: "#d97757", share: 0.09 }, { name: "Discord", c: "#8f98f5", share: 0.06 }, { name: "other", c: "#7b808a", share: 0.09 },
+];
+const upShares = [
+  { name: "Chrome", c: "#4f8df5", share: 0.45 }, { name: "Steam", c: "#8796b3", share: 0.05 },
+  { name: "Claude", c: "#d97757", share: 0.25 }, { name: "Discord", c: "#8f98f5", share: 0.1 }, { name: "other", c: "#7b808a", share: 0.15 },
+];
+function bands(w, base, extent, vals, shares, dir, opacity) {
+  const x = i => ((i / (vals.length - 1)) * w).toFixed(1);
+  const y = v => (base - dir * v * extent).toFixed(1);
+  let acc = vals.map(() => 0), out = "";
+  shares.forEach((s, k) => {
+    const last = k === shares.length - 1;
+    const top = vals.map((v, i) => last ? v : Math.min(v, acc[i] + v * s.share * (1 + 0.35 * Math.sin(i / 9 + k * 2))));
+    const fwd = top.map((v, i) => `${x(i)},${y(v)}`).join(" ");
+    const back = acc.map((v, i) => `${x(i)},${y(v)}`).reverse().join(" ");
+    out += `<polygon points="${fwd} ${back}" fill="${s.c}" fill-opacity="${opacity}"/>`;
+    acc = top;
+  });
+  return out;
+}
+function byAppGraph(w, h, data, o) {
+  const split = o.scale === "shared" ? 0.6 : o.quiet ? 0.72 : 0.6;
+  const mid = h * split, foot = o.ticks ? 18 : 6;
+  const dExt = mid - 22, uExt = h - mid - foot;
+  const umax = o.scale === "shared" ? 1 : Math.max(...data.map(p => p.u));
+  const dv = data.map(p => p.d), uv = data.map(p => (p.u * (o.scale === "shared" ? 0.12 : 1)) / umax);
+  const x = i => ((i / (data.length - 1)) * w).toFixed(1);
+  const lbl = (yy, t) => `<text x="6" y="${yy}" style="fill:var(--mute)" font-size="10" font-family="Cascadia Mono,Consolas,monospace">${t}</text>`;
+  let body;
+  if (o.two) {
+    const up = dv.map((v, i) => `${x(i)},${(mid - v * dExt).toFixed(1)}`).join(" ");
+    const dn = uv.map((v, i) => `${x(i)},${(mid + v * uExt).toFixed(1)}`).join(" ");
+    body = `<polygon points="0,${mid} ${up} ${w},${mid}" style="fill:var(--in)" fill-opacity=".35"/><polyline points="${up}" fill="none" style="stroke:var(--in)" stroke-width="1.4"/>
+      <polygon points="0,${mid} ${dn} ${w},${mid}" style="fill:var(--out)" fill-opacity="${o.quiet ? 0.3 : 0.4}"/><polyline points="${dn}" fill="none" style="stroke:var(--out)" stroke-width="1.2"/>`;
+  } else {
+    body = bands(w, mid, dExt, dv, downShares, 1, 0.8) + bands(w, mid, uExt, uv, upShares, -1, o.quiet ? 0.42 : 0.8);
+  }
+  const grid = [0.5, 1].map(f => `<line x1="0" x2="${w}" y1="${mid - f * dExt}" y2="${mid - f * dExt}" style="stroke:var(--raise)"/>`).join("");
+  const ticks = o.ticks ? o.ticks.map((t, i) => `<text x="${(i / (o.ticks.length - 1)) * (w - 40) + 6}" y="${h - 5}" style="fill:var(--dim)" font-size="10" font-family="Cascadia Mono,Consolas,monospace">${t}</text>`).join("") : "";
+  const hover = o.hover ? `<line x1="${w * 0.7}" x2="${w * 0.7}" y1="24" y2="${h - foot}" style="stroke:var(--kraft)" stroke-dasharray="2 3"/>
+    <g transform="translate(${w * 0.7 + 8},30)"><rect width="176" height="${o.two ? 46 : 92}" rx="5" style="fill:var(--panel);stroke:var(--line)"/>
+    <text x="10" y="17" style="fill:var(--mute)" font-size="10" font-family="Cascadia Mono,Consolas,monospace">14:32:08 · ↓ 4.1 MB/s · ↑ 96 KB/s</text>
+    ${o.two ? `<text x="10" y="35" style="fill:var(--in)" font-size="12" font-family="Cascadia Mono,Consolas,monospace">↓ 4.1 MB/s</text><text x="96" y="35" style="fill:var(--out)" font-size="12" font-family="Cascadia Mono,Consolas,monospace">↑ 96 KB/s</text>` :
+    [["#4f8df5", "Chrome", "3.2 MB/s", "41 KB/s"], ["#8796b3", "Steam", "0.6 MB/s", "4 KB/s"], ["#d97757", "Claude", "0.2 MB/s", "28 KB/s"], ["#7b808a", "other", "0.1 MB/s", "23 KB/s"]].map(([c, n, d, u], k) =>
+      `<rect x="10" y="${28 + k * 15}" width="8" height="8" rx="2" fill="${c}"/><text x="24" y="${36 + k * 15}" style="fill:var(--ink)" font-size="11" font-family="Segoe UI,system-ui">${n}</text><text x="80" y="${36 + k * 15}" style="fill:var(--in)" font-size="10" font-family="Cascadia Mono,Consolas,monospace">${d}</text><text x="134" y="${36 + k * 15}" style="fill:var(--out)" font-size="10" font-family="Cascadia Mono,Consolas,monospace">${u}</text>`).join("")}</g>` : "";
+  return `<svg width="${w}" height="${h}" style="display:block">${grid}${body}<line x1="0" x2="${w}" y1="${mid}" y2="${mid}" style="stroke:var(--dim)"/>
+    ${lbl(mid - dExt + 10, "▲ 4 MB/s")}${lbl(mid + uExt - 2, o.scale === "shared" ? "▼ 4 MB/s" : "▼ 120 KB/s")}${ticks}${hover}</svg>`;
+}
+const appLegend = `<div class="graphlegend" style="position:static;padding:8px 12px 2px;flex-wrap:wrap;gap:10px">${downShares.map(s => sw(s.c, s.name)).join("")}</div>`;
+const r3data = series(90, 7);
+[["H1", { scale: "shared" }], ["H2", { scale: "own" }], ["H3", { scale: "own", quiet: true }]].forEach(([id, o]) => {
+  document.getElementById(id + "d").innerHTML = appLegend + byAppGraph(408, 190, r3data, o);
+  document.getElementById(id + "l").innerHTML = appLegend + byAppGraph(408, 190, r3data, o);
+});
+const appsHome = [...apps.slice(0, 7), { name: "Parcel", exe: "parcel.exe", c: "#c8955a", L: "P", inB: 0.03 * MB, outB: 0.004 * MB }];
+const homeGraphBar = two => `<div class="graphbar"><span class="${two ? "" : "on"}">by app</span><span class="${two ? "on" : ""}">2 colours</span><span style="width:10px"></span><span class="on">5m</span><span>1h</span><span>24h</span><span>30d</span></div>`;
+document.getElementById("R3home").innerHTML = titlebar(["Live", "Map", "Flow", "History"]) + kpis() +
+  `<div class="graphwrap" style="padding-top:28px">${homeGraphBar(false)}<div class="graphlegend">${downShares.map(s => sw(s.c, s.name)).join("")}</div>
+  ${byAppGraph(1258, 220, series(150, 7), { scale: "own", quiet: true, hover: true, ticks: ["-5:00", "-4:00", "-3:00", "-2:00", "-1:00", "now"] })}</div>
+  <div class="lower">${appList(appsHome)}${hostTable(chromeHosts.slice(0, 7), "Google Chrome is talking to")}</div>`;
+["TwoD", "TwoL"].forEach(id => {
+  document.getElementById(id).innerHTML = `<div class="graphwrap" style="padding-top:30px">${homeGraphBar(true)}<div class="graphlegend"><span class="in">▲ download</span><span class="out">▼ upload</span></div>
+  ${byAppGraph(620, 170, r3data, { scale: "own", quiet: true, two: true, hover: true })}</div>`;
+});
+
+// -- R4
+const TABS = ["Live", "Map", "Flow", "History"];
+const narrowRows = list => list.map(h => `<div class="hrow" style="grid-template-columns:22px minmax(0,1fr) 112px 62px">${fav(h)}<div class="svc ell"><b class="ell">${h.brand}</b><span class="ell">${h.host}</span></div>
+  <div class="loc">${stamp(h.cc)}<span class="ell">${h.city}</span></div><div class="num r in">${fmtB(h.inB)}</div></div>`).join("");
+["L1", "L2", "L3"].forEach(id => {
+  document.getElementById(id).innerHTML = titlebar(TABS, [["", "capturing"]]) +
+    kpis([["download", "4.1", "MB/s", "in"], ["upload", "96", "KB/s", "out"], ["today ↓", "26.2", "GB", ""]]) + appLegend +
+    byAppGraph(408, 150, r3data, { scale: "own", quiet: true }) + narrowRows(hosts.slice(0, 3)) +
+    `<div class="swatches">${["--win", "--panel", "--raise", "--ink", "--mute", "--in", "--out", "--kraft"].map(v => `<i style="background:var(${v})" title="${v}"></i>`).join("")}</div>`;
+});
+
+function dayBars(w, h, n, seed, sel) {
+  let s = seed;
+  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+  const mid = h * 0.72, bw = w / n;
+  let out = "";
+  for (let d = 0; d < n; d++) {
+    const weekend = d % 7 === 5 || d % 7 === 6;
+    const dv = (weekend ? 0.75 : 0.35) + rnd() * 0.3, uv = 0.25 + rnd() * 0.6;
+    let acc = 0, accU = 0;
+    downShares.forEach((sh, k) => {
+      const v = dv * sh.share, vu = uv * upShares[k].share;
+      out += `<rect x="${d * bw + 1}" y="${mid - (acc + v) * (mid - 10)}" width="${bw - 2}" height="${v * (mid - 10)}" fill="${sh.c}" fill-opacity=".85"/>`;
+      out += `<rect x="${d * bw + 1}" y="${mid + accU * (h - mid - 4)}" width="${bw - 2}" height="${vu * (h - mid - 4)}" fill="${sh.c}" fill-opacity=".42"/>`;
+      acc += v; accU += vu;
+    });
+  }
+  const brush = sel ? `<rect x="${sel[0] * bw}" y="2" width="${(sel[1] - sel[0]) * bw}" height="${h - 4}" fill="none" style="stroke:var(--kraft)" stroke-width="1.5" rx="3"/>
+    <rect x="${sel[0] * bw - 3}" y="${h / 2 - 9}" width="6" height="18" rx="2" style="fill:var(--kraft)"/><rect x="${sel[1] * bw - 3}" y="${h / 2 - 9}" width="6" height="18" rx="2" style="fill:var(--kraft)"/>` : "";
+  return `<svg width="${w}" height="${h}" style="display:block">${out}<line x1="0" x2="${w}" y1="${mid}" y2="${mid}" style="stroke:var(--dim)"/>${brush}</svg>`;
+}
+const rangeBar = labels => `<div class="chips">${labels.map((l, i) => `<span class="chip ${i === 0 ? "on" : ""}">${l}</span>`).join("")}<div class="spacer"></div></div>`;
+const topApps = list => list.map(([a, v]) => `<div class="approw" style="padding:6px 12px">${fav(apps[a])}<div class="ell">${apps[a].name}</div><div class="num in" style="font-size:12px">${v}</div></div>`).join("");
+document.getElementById("Y1").innerHTML = titlebar(TABS, [["", "capturing"]], 3) + rangeBar(["30 days", "12 months", "all"]) + appLegend +
+  `<div style="padding:4px 8px 0">${dayBars(392, 170, 30, 13, [17, 24])}</div>
+  <div class="mute num" style="font-size:10px;display:flex;justify-content:space-between;padding:2px 10px 8px"><span>24 Oct</span><span>7 Nov</span><span>23 Nov</span></div>
+  <div class="listhead"><span>12 – 18 Nov</span><div class="spacer"></div><span class="in">↓ 142 GB</span><span class="out">↑ 6.1 GB</span></div>
+  ${topApps([[0, "98.4 GB"], [1, "31.0 GB"], [2, "4.2 GB"]])}`;
+let cal = "";
+for (let i = 0; i < 35; i++) {
+  const day = i - 6 + 1, ok = day >= 1 && day <= 30, future = day > 23;
+  const v = ok && !future ? ((i * 37) % 100) / 100 : 0;
+  cal += `<div style="height:38px;border-radius:4px;background:${ok && !future ? `color-mix(in srgb, var(--in) ${12 + v * 70}%, var(--panel))` : "var(--panel)"};${day === 16 ? "outline:1.5px solid var(--kraft);" : ""}font:10px var(--mono);color:${ok ? "var(--ink)" : "transparent"};padding:3px 5px;opacity:${future ? 0.4 : 1}">${ok ? day : ""}</div>`;
+}
+document.getElementById("Y2").innerHTML = titlebar(TABS, [["", "capturing"]], 3) + rangeBar(["November 2026", "‹", "›"]) +
+  `<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;padding:8px 12px">${["M", "T", "W", "T", "F", "S", "S"].map(d => `<div class="mute" style="font-size:10px;text-align:center">${d}</div>`).join("")}${cal}</div>
+  <div class="listhead"><span>Mon 16 Nov</span><div class="spacer"></div><span class="in">↓ 31.8 GB</span><span class="out">↑ 1.2 GB</span></div>
+  ${byAppGraph(408, 70, series(60, 4), { scale: "own", quiet: true })}${topApps([[0, "22.1 GB"], [1, "8.0 GB"]])}`;
+const receipt = (date, d, u, mix, ccs) => `<div style="margin:10px 12px;padding:10px 12px;border:1px dashed var(--line);border-radius:6px;background:var(--panel)">
+  <div style="display:flex;justify-content:space-between;align-items:baseline"><b>${date}</b><span class="num" style="font-size:12px"><span class="in">↓ ${d}</span> <span class="out">↑ ${u}</span></span></div>
+  <div class="bar" style="height:8px;margin:8px 0">${mix.map(([c, p]) => `<b style="width:${p}%;background:${c}"></b>`).join("")}</div>
+  <div style="display:flex;gap:10px;font-size:11px" class="mute">${mix.slice(0, 3).map(([c, p, n]) => `<span><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${c}"></i> ${n} ${p}%</span>`).join("")}</div>
+  <div style="display:flex;gap:6px;margin-top:8px">${ccs.map(stamp).join("")}</div></div>`;
+document.getElementById("Y3").innerHTML = titlebar(TABS, [["", "capturing"]], 3) + rangeBar(["days", "weeks", "months"]) +
+  receipt("Mon 23 Nov", "26.2 GB", "1.4 GB", [["#4f8df5", 71, "Chrome"], ["#8796b3", 18, "Steam"], ["#d97757", 6, "Claude"], ["#7b808a", 5, "other"]], ["US", "NL", "BE", "IE", "DE"]) +
+  receipt("Sun 22 Nov", "41.7 GB", "2.0 GB", [["#8796b3", 52, "Steam"], ["#4f8df5", 40, "Chrome"], ["#8f98f5", 4, "Discord"], ["#7b808a", 4, "other"]], ["NL", "US", "DE"]) +
+  receipt("Sat 21 Nov", "12.3 GB", "0.9 GB", [["#4f8df5", 80, "Chrome"], ["#d97757", 12, "Claude"], ["#7b808a", 8, "other"]], ["US", "BE", "GB", "SE"]);
+
+document.getElementById("O1").innerHTML = titlebar(TABS, [["warn", "etw only"]]) +
+  `<div class="banner">Running on ETW only. Bytes per app work; packet counts and most hostnames need Npcap.<div class="spacer"></div><span class="btn">Get Npcap</span><span class="btn ghost">Why?</span></div>` +
+  kpis([["download", "4.1", "MB/s", "in"], ["upload", "96", "KB/s", "out"], ["packets / min", "n/a", "", ""]]) + appLegend + byAppGraph(620, 130, r3data, { scale: "own", quiet: true });
+document.getElementById("O2").innerHTML = titlebar(null, [["", "first run"]]) +
+  `<div class="center" style="padding:26px 40px"><div style="width:100%;max-width:470px">${box(36)}<h3 style="margin:10px 0 2px">Welcome to Parcel</h3>
+  <p class="mute" style="margin:0 0 10px">Three things make Parcel work. Two are ready.</p>
+  <div class="checkrow"><span style="color:#5fd068">✓</span><div><b>Capture service</b><div class="mute" style="font-size:12px">Running. Records even with this window closed.</div></div><span></span></div>
+  <div class="checkrow"><span style="color:var(--warn)">○</span><div><b>Npcap</b><div class="mute" style="font-size:12px">Not installed. Adds exact packet counts and the names of most hosts. Free from npcap.com.</div></div><span class="btn">Get Npcap</span></div>
+  <div class="checkrow"><span style="color:#5fd068">✓</span><div><b>Location data</b><div class="mute" style="font-size:12px">DB-IP Lite, November 2026. Updates monthly.</div></div><span></span></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px"><span class="mute" style="font-size:11px">IP Geolocation by DB-IP</span><span class="btn ghost">Continue with ETW for now</span></div></div></div>`;
+
+const setPanel = `<div class="sethead">GENERAL</div>
+  <div class="setrow"><span>Theme</span><div class="seg"><span class="on">System</span><span>Dark</span><span>Light</span></div></div>
+  <div class="setrow"><span>Graph</span><div class="seg"><span class="on">By app</span><span>2 colours</span></div></div>
+  <div class="sethead">CAPTURE</div>
+  <div class="setrow"><span>Service</span><span class="pill"><i></i>running</span></div>
+  <div class="setrow"><span>Npcap</span><span class="pill"><i></i>installed</span></div>
+  <div class="sethead">DATA</div>
+  <div class="setrow"><div>Location data<div class="mute" style="font-size:11px">DB-IP Lite · Nov 2026</div></div><span class="btn ghost">Update now</span></div>
+  <div class="setrow"><div>History<div class="mute" style="font-size:11px">184 MB on disk</div></div><span class="btn ghost">Clear…</span></div>
+  <div class="mute" style="font-size:11px;margin-top:12px">Parcel 0.1.0 · IP Geolocation by DB-IP</div>`;
+document.getElementById("S1set").innerHTML = titlebar(TABS, [["", "capturing"]]).replace('<div class="spacer"></div>', '<div class="spacer"></div><div class="wbtn" style="color:var(--kraft)">⚙</div>') +
+  kpis([["download", "4.1", "MB/s", "in"], ["upload", "96", "KB/s", "out"], ["today ↓", "26.2", "GB", ""]]) + appLegend + byAppGraph(620, 352, r3data, { scale: "own", quiet: true }) +
+  `<div class="sheet"><div class="panel"><div style="display:flex;justify-content:space-between"><b style="font-size:15px">Settings</b><span class="mute">✕</span></div>${setPanel}</div></div>`;
+document.getElementById("S2set").innerHTML = titlebar([...TABS, "Settings"], [["", "capturing"]], 4) +
+  `<div style="display:grid;grid-template-columns:150px 1fr;height:452px"><div style="border-right:1px solid var(--line);padding:10px 0">${["General", "Capture", "Data", "About"].map((t, i) => `<div style="padding:7px 16px;${i === 0 ? "background:var(--raise);box-shadow:inset 2px 0 0 var(--kraft)" : "color:var(--mute)"}">${t}</div>`).join("")}</div>
+  <div style="padding:6px 22px">${setPanel}</div></div>`;
+</script>
+</body>
+</html>
