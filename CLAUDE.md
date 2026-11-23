@@ -23,7 +23,8 @@ entry a lowercase registered domain or public suffix, listed once.
 
 Attribution: a flow's owner is keyed by (protocol, local port), learned from ETW transfers and
 the socket-table poll; bytes with no owner yet are "Unknown app" (Claude's pick, 2026-11-23).
-Apps are keyed by exe path and named by the exe's `FileDescription` (what Task Manager shows),
+Apps are keyed by exe path (decided 2026-11-23, the owner: "Keep path identity", so two exes
+with one description stay two rows) and named by the exe's `FileDescription` (what Task Manager shows),
 else its file name (Claude's pick; curl shows as "The curl executable"). pids 0 and 4 are
 "System", the service itself "Parcel", an unreadable pid "Process <pid>". Hosts take the SNI
 name, else the DNS name, else the IP. Without admin, ETW is off and ownership comes from the
