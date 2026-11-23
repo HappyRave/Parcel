@@ -126,16 +126,20 @@ mod tests {
                 packets_down: 1,
                 packets_up: 1,
                 hosts: vec![HostRate {
-                    host: "x.com".into(),
+                    host: "cdn.x.com".into(),
+                    service: Some("X".into()),
+                    domain: Some("x.com".into()),
                     down: 2,
                     up: 3,
+                    packets_down: 1,
+                    packets_up: 1,
                 }],
             }],
         }))
         .unwrap();
         assert_eq!(
             json,
-            r#"{"kind":"tick","at":1,"down":2,"up":3,"apps":[{"path":"C:\\a.exe","name":"A","down":2,"up":3,"packetsDown":1,"packetsUp":1,"hosts":[{"host":"x.com","down":2,"up":3}]}]}"#
+            r#"{"kind":"tick","at":1,"down":2,"up":3,"apps":[{"path":"C:\\a.exe","name":"A","down":2,"up":3,"packetsDown":1,"packetsUp":1,"hosts":[{"host":"cdn.x.com","service":"X","domain":"x.com","down":2,"up":3,"packetsDown":1,"packetsUp":1}]}]}"#
         );
     }
 }

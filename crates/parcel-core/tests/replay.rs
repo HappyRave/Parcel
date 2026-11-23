@@ -43,11 +43,13 @@ fn rows(tick: &Tick) -> Vec<String> {
                 "{} ↓{} ↑{} pk{}/{}",
                 a.name, a.down, a.up, a.packets_down, a.packets_up
             );
-            std::iter::once(head).chain(
-                a.hosts
-                    .iter()
-                    .map(|h| format!("  {} ↓{} ↑{}", h.host, h.down, h.up)),
-            )
+            std::iter::once(head).chain(a.hosts.iter().map(|h| {
+                let service = h.service.as_deref().unwrap_or("-");
+                format!(
+                    "  {service} {} ↓{} ↑{} pk{}/{}",
+                    h.host, h.down, h.up, h.packets_down, h.packets_up
+                )
+            }))
         })
         .collect()
 }
@@ -60,13 +62,13 @@ fn basic_with_npcap() {
         rows(&tick),
         [
             "Browser ↓3028 ↑600 pk2/1",
-            "  cdn.video.example ↓3028 ↑600",
+            "  video.example cdn.video.example ↓3028 ↑600 pk2/1",
             "Chat ↓0 ↑1350 pk0/1",
-            "  203.0.113.9 ↓0 ↑1350",
+            "  - 203.0.113.9 ↓0 ↑1350 pk0/1",
             "Unknown app ↓900 ↑0 pk1/0",
-            "  203.0.113.5 ↓900 ↑0",
+            "  - 203.0.113.5 ↓900 ↑0 pk1/0",
             "Game ↓700 ↑0 pk1/0",
-            "  203.0.113.5 ↓700 ↑0",
+            "  - 203.0.113.5 ↓700 ↑0 pk1/0",
         ]
     );
 }

@@ -4,5 +4,6 @@
 pub mod capture;
 pub mod engine;
 pub mod event;
+pub mod naming;
 pub mod packet;
 pub mod process;

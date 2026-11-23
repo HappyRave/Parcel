@@ -31,13 +31,17 @@
   <div class="panel">
     <h2>{selected ? `${selected.name}: hosts` : "Hosts"}</h2>
     <table>
-      <thead><tr><th>Host</th><th class="r">↓</th><th class="r">↑</th></tr></thead>
+      <thead><tr><th>Service · host</th><th class="r">↓</th><th class="r">↑</th><th class="r">Packets</th></tr></thead>
       <tbody>
         {#each selected?.hosts ?? [] as h (h.host)}
           <tr>
-            <td class="name">{h.host}</td>
+            <td class="name svc" title={h.host}>
+              <b>{h.service ?? h.host}</b>
+              {#if h.service && h.service !== h.host}<span>{h.host}</span>{/if}
+            </td>
             <td class="r num in">{rate(h.down)}</td>
             <td class="r num out">{rate(h.up)}</td>
+            <td class="r num dim">{h.packetsDown + h.packetsUp}</td>
           </tr>
         {/each}
       </tbody>
@@ -93,6 +97,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .svc b {
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .svc span {
+    font: 11px var(--mono);
+    color: var(--mute);
   }
   .r {
     text-align: right;

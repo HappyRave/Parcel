@@ -7,6 +7,7 @@ use std::time::Duration;
 use parcel_ipc::messages::{AppRate, HostRate, Tick};
 
 use crate::event::{Dir, Event, Flow, Millis, NameSource, Proto, now_millis};
+use crate::naming::{Named, Naming};
 use crate::process::{App, Processes};
 
 /// Port owners, names and app lookups unused for this long are forgotten.
@@ -40,13 +41,33 @@ pub fn run<P: Processes>(
     }
 }
 
-#[derive(Default)]
-struct Counts {
+#[derive(Default, Clone, Copy)]
+struct Rates {
     down: u64,
     up: u64,
     packets_down: u64,
     packets_up: u64,
-    hosts: HashMap<IpAddr, (u64, u64)>,
+}
+
+impl Rates {
+    fn add(&mut self, dir: Dir, bytes: u64, packets: u64) {
+        match dir {
+            Dir::In => {
+                self.down += bytes;
+                self.packets_down += packets;
+            }
+            Dir::Out => {
+                self.up += bytes;
+                self.packets_up += packets;
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct Counts {
+    total: Rates,
+    hosts: HashMap<IpAddr, Rates>,
 }
 
 /// Folds the capture event stream into per-second totals by app and remote host.
@@ -56,8 +77,9 @@ struct Counts {
 pub struct Engine<P> {
     npcap: bool,
     processes: P,
+    naming: Naming,
     owners: HashMap<(Proto, u16), (u32, Millis)>,
-    names: HashMap<IpAddr, (String, NameSource, Millis)>,
+    names: HashMap<IpAddr, (Named, NameSource, Millis)>,
     apps: HashMap<u32, (App, Millis)>,
     second: HashMap<Option<u32>, Counts>,
     down: u64,
@@ -71,6 +93,7 @@ impl<P: Processes> Engine<P> {
         Self {
             npcap,
             processes,
+            naming: Naming::default(),
             owners: HashMap::new(),
             names: HashMap::new(),
             apps: HashMap::new(),
@@ -122,7 +145,8 @@ impl<P: Processes> Engine<P> {
                     (Some((_, NameSource::Sni, _)), NameSource::Dns)
                 );
                 if !keep {
-                    self.names.insert(*ip, (name.clone(), *source, *at));
+                    self.names
+                        .insert(*ip, (self.naming.name(name), *source, *at));
                 }
             }
         }
@@ -152,21 +176,32 @@ impl<P: Processes> Engine<P> {
                     HashMap::new(),
                 )
             });
-            rate.down += counts.down;
-            rate.up += counts.up;
-            rate.packets_down += counts.packets_down;
-            rate.packets_up += counts.packets_up;
-            for (ip, (down, up)) in counts.hosts {
-                let host = self
-                    .names
-                    .get(&ip)
-                    .map_or_else(|| ip.to_string(), |(name, ..)| name.clone());
-                let h = hosts.entry(host.clone()).or_insert_with(|| HostRate {
-                    host,
-                    ..HostRate::default()
-                });
-                h.down += down;
-                h.up += up;
+            rate.down += counts.total.down;
+            rate.up += counts.total.up;
+            rate.packets_down += counts.total.packets_down;
+            rate.packets_up += counts.total.packets_up;
+            for (ip, r) in counts.hosts {
+                let h = match self.names.get(&ip) {
+                    Some((named, ..)) => {
+                        hosts.entry(named.host.clone()).or_insert_with(|| HostRate {
+                            host: named.host.clone(),
+                            service: named.service.clone(),
+                            domain: named.domain.clone(),
+                            ..HostRate::default()
+                        })
+                    }
+                    None => {
+                        let host = ip.to_string();
+                        hosts.entry(host.clone()).or_insert_with(|| HostRate {
+                            host,
+                            ..HostRate::default()
+                        })
+                    }
+                };
+                h.down += r.down;
+                h.up += r.up;
+                h.packets_down += r.packets_down;
+                h.packets_up += r.packets_up;
             }
         }
         let mut apps: Vec<AppRate> = by_path
@@ -204,22 +239,16 @@ impl<P: Processes> Engine<P> {
     fn count(&mut self, pid: Option<u32>, flow: Flow, dir: Dir, bytes: u32, packet: bool) {
         let bytes = u64::from(bytes);
         let packets = u64::from(packet);
-        let c = self.second.entry(pid).or_default();
-        let host = c.hosts.entry(flow.remote.ip()).or_default();
         match dir {
-            Dir::In => {
-                self.down += bytes;
-                c.down += bytes;
-                c.packets_down += packets;
-                host.0 += bytes;
-            }
-            Dir::Out => {
-                self.up += bytes;
-                c.up += bytes;
-                c.packets_up += packets;
-                host.1 += bytes;
-            }
+            Dir::In => self.down += bytes,
+            Dir::Out => self.up += bytes,
         }
+        let c = self.second.entry(pid).or_default();
+        c.total.add(dir, bytes, packets);
+        c.hosts
+            .entry(flow.remote.ip())
+            .or_default()
+            .add(dir, bytes, packets);
     }
 
     fn prune(&mut self, now: Millis) {
@@ -447,6 +476,39 @@ mod tests {
         )
         .tick(1000);
         assert_eq!(tick.apps[0].hosts[0].host, "github.com");
+    }
+
+    #[test]
+    fn hosts_carry_service_domain_and_packets() {
+        let tick = engine(
+            true,
+            &[
+                name("1.1.1.1", "rr1---sn-abc.GoogleVideo.com.", NameSource::Sni),
+                transfer(7, 50000, "1.1.1.1", Dir::Out, 1),
+                packet(50000, "1.1.1.1", Dir::In, 1500),
+                packet(50000, "1.1.1.1", Dir::In, 1500),
+                packet(50000, "1.1.1.1", Dir::Out, 80),
+                packet(50000, "9.9.9.9", Dir::Out, 80),
+            ],
+        )
+        .tick(1000);
+        let hosts = &tick.apps[0].hosts;
+        assert_eq!(
+            hosts[0],
+            HostRate {
+                host: "rr1---sn-abc.googlevideo.com".into(),
+                service: Some("YouTube".into()),
+                domain: Some("googlevideo.com".into()),
+                down: 3000,
+                up: 80,
+                packets_down: 2,
+                packets_up: 1,
+            }
+        );
+        assert_eq!(
+            (hosts[1].host.as_str(), &hosts[1].service),
+            ("9.9.9.9", &None)
+        );
     }
 
     #[test]

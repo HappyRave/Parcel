@@ -26,8 +26,14 @@ export interface AppRate {
 export interface HostRate {
   /** Hostname from DNS or SNI, else the IP address. */
   host: string;
+  /** Brand ("YouTube"), else the registered domain; null for a bare IP. */
+  service: string | null;
+  /** Registered domain, for the favicon. */
+  domain: string | null;
   down: number;
   up: number;
+  packetsDown: number;
+  packetsUp: number;
 }
 
 export type ServiceState =

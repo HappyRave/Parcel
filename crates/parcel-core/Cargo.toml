@@ -7,10 +7,9 @@ publish.workspace = true
 [dependencies]
 etherparse = "0.21.0"
 parcel-ipc.workspace = true
-simple-dns = "0.13.1"
-tls-parser = "0.12.2"
+psl = "2.1.261"
 serde.workspace = true
-thiserror.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true
+simple-dns = "0.13.1"
+thiserror.workspace = true
+tls-parser = "0.12.2"
