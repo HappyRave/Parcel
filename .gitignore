@@ -16,6 +16,7 @@ build/
 *.log
 # `parcel-service console --record` output: real browsing hostnames
 *.jsonl
+!crates/*/tests/fixtures/*.jsonl
 
 # OS / editors
 Thumbs.db

@@ -70,4 +70,13 @@ pub enum Event {
         name: String,
         source: NameSource,
     },
+    /// A snapshot of the OS's socket table: which process owns each local port.
+    Ports { at: Millis, owners: Vec<PortOwner> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortOwner {
+    pub proto: Proto,
+    pub port: u16,
+    pub pid: u32,
 }

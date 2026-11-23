@@ -6,6 +6,28 @@ export interface Tick {
   at: number;
   down: number;
   up: number;
+  /** Busiest first. */
+  apps: AppRate[];
+}
+
+export interface AppRate {
+  /** Executable path, the app's identity; "" for traffic with no known owner. */
+  path: string;
+  name: string;
+  down: number;
+  up: number;
+  /** Zero without Npcap. */
+  packetsDown: number;
+  packetsUp: number;
+  /** Busiest first. */
+  hosts: HostRate[];
+}
+
+export interface HostRate {
+  /** Hostname from DNS or SNI, else the IP address. */
+  host: string;
+  down: number;
+  up: number;
 }
 
 export type ServiceState =

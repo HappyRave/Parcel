@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { onService, onTick, serviceState, type ServiceState, type Tick } from "$lib/api";
   import { rate } from "$lib/format";
+  import Apps from "$lib/live/Apps.svelte";
 
   const tabs = ["Live", "Map", "Flow", "History"] as const;
   type Tab = (typeof tabs)[number];
@@ -40,6 +41,7 @@
         <div class="kpi"><span>Download</span><b class="num in">↓ {rate(last?.down ?? 0)}</b></div>
         <div class="kpi"><span>Upload</span><b class="num out">↑ {rate(last?.up ?? 0)}</b></div>
       </section>
+      <Apps apps={last?.apps ?? []} />
     {:else}
       <p class="todo">{tab} isn't built yet.</p>
     {/if}

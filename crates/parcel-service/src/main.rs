@@ -12,9 +12,12 @@ use tracing_subscriber::EnvFilter;
 
 use crate::capture::etw::Etw;
 use crate::capture::npcap::Npcap;
+use crate::capture::ports::PortTable;
+use crate::process::WinProcesses;
 
 mod adapters;
 mod capture;
+mod process;
 
 const USAGE: &str = "usage: parcel-service console [--record <events.jsonl>]";
 
@@ -56,8 +59,10 @@ fn console(record: Option<PathBuf>) -> ExitCode {
 
     let mut npcap = Npcap::default();
     let mut etw = Etw::default();
+    let mut ports = PortTable::default();
     let npcap_on = start(&mut npcap, &events);
     let etw_on = start(&mut etw, &events);
+    start(&mut ports, &events);
     if !npcap_on && !etw_on {
         tracing::error!("nothing is capturing: install Npcap or run as administrator");
     }
@@ -66,7 +71,7 @@ fn console(record: Option<PathBuf>) -> ExitCode {
     let engine = std::thread::spawn({
         let ticks = ticks.clone();
         move || {
-            parcel_core::engine::run(&rx, npcap_on, |tick| {
+            parcel_core::engine::run(&rx, npcap_on, WinProcesses::new(), |tick| {
                 // No subscribers is normal while the UI is closed.
                 let _ = ticks.send(tick);
             });
@@ -84,6 +89,7 @@ fn console(record: Option<PathBuf>) -> ExitCode {
 
     npcap.stop();
     etw.stop();
+    ports.stop();
     drop(events);
     if engine.join().is_err() {
         tracing::error!("engine thread panicked");

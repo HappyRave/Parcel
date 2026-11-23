@@ -8,11 +8,12 @@ use ferrisetw::provider::{EventFilter, Provider};
 use ferrisetw::schema_locator::SchemaLocator;
 use ferrisetw::trace::{TraceError, UserTrace, stop_trace_by_name};
 use parcel_core::capture::{CaptureError, CaptureSource};
-use parcel_core::event::{Dir, Event, Flow, Proto, now_millis};
+use parcel_core::event::{Dir, Event, Flow, NameSource, Proto, now_millis};
 
 const NAME: &str = "ETW";
 const SESSION: &str = "Parcel-KernelNetwork";
 const KERNEL_NETWORK: &str = "7dd42a49-5329-4832-8dfd-43d979153a88";
+const DNS_CLIENT: &str = "1c95126e-7eea-49a9-a3fe-a378b03ddb4d";
 /// Send / receive events of Microsoft-Windows-Kernel-Network. Id 18 repeats id 11's bytes.
 const SEND_RECV_IDS: [u16; 8] = [10, 11, 26, 27, 42, 43, 58, 59];
 /// `ERROR_ACCESS_DENIED`, plain and as the HRESULT ferrisetw reports.
@@ -63,6 +64,38 @@ fn transfer(record: &EventRecord, locator: &SchemaLocator) -> Option<Event> {
     })
 }
 
+/// Names from a DNS-client query result. Misses Chrome's own lookups, so it matters mostly
+/// without Npcap; with it, Npcap sees the same replies.
+fn dns_names(record: &EventRecord, locator: &SchemaLocator) -> Vec<Event> {
+    let Ok(schema) = locator.event_schema(record) else {
+        return Vec::new();
+    };
+    let p = Parser::create(record, &schema);
+    let (Ok(name), Ok(results)) = (
+        p.try_parse::<String>("QueryName"),
+        p.try_parse::<String>("QueryResults"),
+    ) else {
+        return Vec::new();
+    };
+    let at = now_millis();
+    result_ips(&results)
+        .map(|ip| Event::Hostname {
+            at,
+            ip,
+            name: name.clone(),
+            source: NameSource::Dns,
+        })
+        .collect()
+}
+
+/// `QueryResults` is `;`-separated: addresses, plus entries like `type:  5 cname.example;`.
+fn result_ips(results: &str) -> impl Iterator<Item = IpAddr> + '_ {
+    results
+        .split(';')
+        .filter_map(|t| t.trim().parse::<IpAddr>().ok())
+        .map(|ip| ip.to_canonical())
+}
+
 fn start_error(e: TraceError) -> CaptureError {
     match e {
         TraceError::EtwNativeError(EvntraceNativeError::IoError(io))
@@ -84,22 +117,33 @@ impl CaptureSource for Etw {
         // A killed service leaves its session running, and starting a new one then fails. The
         // result says nothing useful: ferrisetw reports Ok even when there was no such session.
         let _ = stop_trace_by_name(SESSION);
-        let provider = Provider::by_guid(KERNEL_NETWORK)
+        // Sends fail only once the engine is gone, during shutdown.
+        let net = Provider::by_guid(KERNEL_NETWORK)
             .add_filter(EventFilter::ByEventIds(SEND_RECV_IDS.to_vec()))
+            .add_callback({
+                let events = events.clone();
+                move |record: &EventRecord, locator: &SchemaLocator| {
+                    if let Some(event) = transfer(record, locator) {
+                        let _ = events.send(event);
+                    }
+                }
+            })
+            .build();
+        let dns = Provider::by_guid(DNS_CLIENT)
             .add_callback(move |record: &EventRecord, locator: &SchemaLocator| {
-                if let Some(event) = transfer(record, locator) {
-                    // Fails only once the engine is gone, during shutdown.
+                for event in dns_names(record, locator) {
                     let _ = events.send(event);
                 }
             })
             .build();
         let trace = UserTrace::new()
             .named(SESSION.to_owned())
-            .enable(provider)
+            .enable(net)
+            .enable(dns)
             .start_and_process()
             .map_err(start_error)?;
         self.trace = Some(trace);
-        tracing::info!("{NAME}: capturing Kernel-Network send / receive events");
+        tracing::info!("{NAME}: capturing Kernel-Network transfers and DNS-client names");
         Ok(())
     }
 
@@ -130,6 +174,21 @@ mod tests {
                 Some((Proto::Udp, Dir::In)),
                 Some((Proto::Udp, Dir::Out)),
                 Some((Proto::Udp, Dir::In)),
+            ]
+        );
+    }
+
+    #[test]
+    fn dns_results_keep_only_addresses() {
+        let ips: Vec<IpAddr> =
+            result_ips("type:  5 www.l.google.com;142.250.74.4;::ffff:142.250.74.5;2a00:1450::4;")
+                .collect();
+        assert_eq!(
+            ips,
+            [
+                "142.250.74.4".parse::<IpAddr>().unwrap(),
+                "142.250.74.5".parse().unwrap(),
+                "2a00:1450::4".parse().unwrap(),
             ]
         );
     }

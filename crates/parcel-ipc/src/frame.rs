@@ -68,7 +68,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::{ServerMsg, Tick};
+    use crate::messages::{AppRate, HostRate, ServerMsg, Tick};
 
     #[tokio::test]
     async fn frames_round_trip() {
@@ -77,6 +77,7 @@ mod tests {
             at: 1,
             down: 2,
             up: 3,
+            apps: Vec::new(),
         });
         write(&mut a, &tick).await.unwrap();
         write(&mut a, &tick).await.unwrap();
@@ -117,8 +118,24 @@ mod tests {
             at: 1,
             down: 2,
             up: 3,
+            apps: vec![AppRate {
+                path: r"C:\a.exe".into(),
+                name: "A".into(),
+                down: 2,
+                up: 3,
+                packets_down: 1,
+                packets_up: 1,
+                hosts: vec![HostRate {
+                    host: "x.com".into(),
+                    down: 2,
+                    up: 3,
+                }],
+            }],
         }))
         .unwrap();
-        assert_eq!(json, r#"{"kind":"tick","at":1,"down":2,"up":3}"#);
+        assert_eq!(
+            json,
+            r#"{"kind":"tick","at":1,"down":2,"up":3,"apps":[{"path":"C:\\a.exe","name":"A","down":2,"up":3,"packetsDown":1,"packetsUp":1,"hosts":[{"host":"x.com","down":2,"up":3}]}]}"#
+        );
     }
 }

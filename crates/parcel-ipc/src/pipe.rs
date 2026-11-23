@@ -193,8 +193,9 @@ mod tests {
             at: 1000,
             down: 5,
             up: 6,
+            apps: Vec::new(),
         };
-        tx.send(tick).unwrap();
+        tx.send(tick.clone()).unwrap();
         assert_eq!(conn.next().await.unwrap(), Some(ServerMsg::Tick(tick)));
         server.abort();
     }

@@ -1,0 +1,10 @@
+{"kind":"ports","at":1000,"owners":[{"proto":"tcp","port":51000,"pid":100},{"proto":"udp","port":53000,"pid":300}]}
+{"kind":"hostname","at":1001,"ip":"198.51.100.7","name":"video.example","source":"dns"}
+{"kind":"hostname","at":1002,"ip":"198.51.100.7","name":"cdn.video.example","source":"sni"}
+{"kind":"packet","at":1003,"flow":{"proto":"tcp","local":"192.0.2.10:51000","remote":"198.51.100.7:443"},"dir":"out","bytes":600}
+{"kind":"packet","at":1004,"flow":{"proto":"tcp","local":"192.0.2.10:51000","remote":"198.51.100.7:443"},"dir":"in","bytes":1514}
+{"kind":"packet","at":1005,"flow":{"proto":"tcp","local":"192.0.2.10:51000","remote":"198.51.100.7:443"},"dir":"in","bytes":1514}
+{"kind":"packet","at":1006,"flow":{"proto":"tcp","local":"192.0.2.10:52000","remote":"203.0.113.5:443"},"dir":"in","bytes":900}
+{"kind":"transfer","at":1007,"pid":200,"flow":{"proto":"tcp","local":"192.0.2.10:52000","remote":"203.0.113.5:443"},"dir":"in","bytes":900}
+{"kind":"packet","at":1008,"flow":{"proto":"tcp","local":"192.0.2.10:52000","remote":"203.0.113.5:443"},"dir":"in","bytes":700}
+{"kind":"packet","at":1009,"flow":{"proto":"udp","local":"192.0.2.10:53000","remote":"203.0.113.9:443"},"dir":"out","bytes":1350}

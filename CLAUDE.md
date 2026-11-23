@@ -7,11 +7,21 @@ per remote host, with the company/service logo, geographic origin, packet counts
 The look takes inspiration from GlassWire's mechanics (live traffic graph, per-app / per-host
 breakdown) but is our own design, not a copy of its visuals.
 
-**State (2026-11-23):** capture works. In console mode the service runs Npcap (packets, DNS and SNI
-names) and ETW (per-process transfers, admin only) into the engine, which sends total ↓/↑ ticks
-over the pipe; the app shows them with an offline banner and reconnects. Not built: attribution
-(flow → pid → app), naming, GeoIP, storage, the real Windows service, the UI beyond the KPI pair.
-Update this file as pieces land.
+**State (2026-11-23):** capture and attribution work. In console mode the service runs Npcap
+(packets, DNS and SNI names), ETW (per-process transfers + DNS-client names, admin only) and a
+1 s socket-table poll into the engine, which sends per-second ticks by app and remote host over
+the pipe; the app shows KPIs, an apps table and the selected app's hosts (plain tables, not the
+lab design). Not built: naming beyond hostname / IP (psl, brands, ASN), GeoIP, storage, the real
+Windows service, the lab UI. Update this file as pieces land.
+
+Attribution: a flow's owner is keyed by (protocol, local port), learned from ETW transfers and
+the socket-table poll; bytes with no owner yet are "Unknown app" (Claude's pick, 2026-11-23).
+Apps are keyed by exe path and named by the exe's `FileDescription` (what Task Manager shows),
+else its file name (Claude's pick; curl shows as "The curl executable"). pids 0 and 4 are
+"System", the service itself "Parcel", an unreadable pid "Process <pid>". Hosts take the SNI
+name, else the DNS name, else the IP. Without admin, ETW is off and ownership comes from the
+poll alone, so short-lived flows can land in "Unknown app". ETW bytes (no-Npcap mode) are not
+filtered to hardware adapters yet, so they include VPN / WSL / Hyper-V traffic.
 
 ## Commands
 
@@ -28,19 +38,23 @@ cargo fmt --all; cargo clippy --workspace --all-targets
 
 ```
 crates/parcel-core      portable logic: event.rs (the Event stream), capture.rs (CaptureSource),
-                        engine.rs (byte rule, per-second ticks, run loop),
-                        packet.rs (Ethernet frame → Packet, DNS reply / TLS SNI → Hostname)
+                        engine.rs (byte rule, owners, names, per-app / per-host ticks, run loop),
+                        packet.rs (Ethernet frame → Packet, DNS reply / TLS SNI → Hostname),
+                        process.rs (App, the Processes trait); tests/replay.rs replays
+                        tests/fixtures/*.jsonl (hand-written, documentation IPs only)
 crates/parcel-ipc       messages.rs (wire types, PROTOCOL), frame.rs (u32 LE length + JSON),
                         pipe.rs (Windows server / Connection; SDDL: SYSTEM, admins, interactive users)
                         feature `pipe` (default); parcel-core takes only the messages
 crates/parcel-service   binary; `console` starts the sources, engine thread and pipe server until
                         Ctrl+C. capture/npcap.rs (one thread per hardware adapter, adapters.rs
-                        matches them by GUID), capture/etw.rs (session `Parcel-KernelNetwork`).
+                        matches them by GUID), capture/etw.rs (session `Parcel-KernelNetwork`),
+                        capture/ports.rs (socket-table poll), process.rs (pid → exe path + name).
                         build.rs makes wpcap.lib from lib/wpcap.def with lib.exe (needs the VS C++
                         build tools) and delay-loads wpcap.dll
 src-tauri               keeps one pipe Connection, re-emits `tick` and `service` events,
                         command `service_state`
-src/                    lib/api.ts wraps invoke/listen; lib/dev/mock.ts; routes/+page.svelte
+src/                    lib/api.ts wraps invoke/listen; lib/dev/mock.ts; routes/+page.svelte;
+                        lib/live/Apps.svelte (apps + selected app's hosts)
 spikes/                 throwaway research code, not in the workspace
 ```
 
