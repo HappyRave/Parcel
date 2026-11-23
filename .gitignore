@@ -19,3 +19,6 @@ build/
 Thumbs.db
 .DS_Store
 .idea/
+
+# Tauri-generated schemas
+src-tauri/gen/

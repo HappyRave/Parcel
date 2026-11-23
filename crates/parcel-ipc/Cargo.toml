@@ -1,0 +1,23 @@
+[package]
+name = "parcel-ipc"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[features]
+default = ["pipe"]
+# Framing and the named pipe; without it only the message types are built (what parcel-core needs).
+pipe = ["dep:tokio", "dep:serde_json", "dep:thiserror", "dep:tracing", "dep:windows-sys"]
+
+[dependencies]
+serde.workspace = true
+serde_json = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["io-util", "net", "sync", "time", "rt", "macros"] }
+tracing = { version = "0.1.44", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", optional = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "net", "sync", "time", "rt-multi-thread", "macros"] }

@@ -1,0 +1,59 @@
+/* Tokens from design/lab/index.html: dark by default, L1 Paper when Windows is in light mode. */
+:root {
+  --bg: #0c0d10;
+  --win: #121418;
+  --panel: #171a1f;
+  --raise: #1d2127;
+  --line: #262a31;
+  --title: #101216;
+  --ink: #e9e6df;
+  --mute: #8b909a;
+  --dim: #5b606a;
+  --in: #4fd1c5;
+  --out: #f0a35e;
+  --kraft: #c8955a;
+  --warn: #f2c14e;
+  --bad: #ef6f6c;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f7f5f0;
+    --win: #f7f5f0;
+    --panel: #ffffff;
+    --raise: #ece8df;
+    --line: #e0dbd0;
+    --title: #efece4;
+    --ink: #1d1f23;
+    --mute: #6b6e75;
+    --dim: #a5a7ad;
+    --in: #0e9488;
+    --out: #c8691a;
+    --kraft: #a4702f;
+    color-scheme: light;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--win);
+  color: var(--ink);
+  font: 13px/1.4 var(--ui);
+}
+
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}

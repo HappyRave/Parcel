@@ -3,8 +3,8 @@
 A lightweight network monitor for Windows. Parcel shows your PC's live traffic and where every packet goes:
 which app sent it, which company or service received it, in which country, how many packets and how much data.
 
-> **Status: design phase.** The capture approach is proven by two spikes, and the UI has gone through four
-> design rounds. The app itself isn't built yet.
+> **Status: scaffold.** The capture approach is proven by two spikes, and the UI has gone through four
+> design rounds. The service, app and pipe between them run end to end, but nothing is captured yet.
 
 ## What it will do
 
@@ -35,13 +35,22 @@ on first run and links to npcap.com.
 
 Rust, [Tauri 2](https://tauri.app) and SvelteKit (Svelte 5). All logic lives in Rust; the Svelte side only renders.
 
-Planned layout:
+Layout:
 
 ```
 crates/parcel-core      naming, aggregation, storage (portable, no capture code)
+crates/parcel-ipc       the service ↔ app protocol over a named pipe
 crates/parcel-service   Npcap + ETW capture, the Windows service
 src-tauri               thin Tauri client
 src                     SvelteKit UI
+```
+
+Running it (the scaffold: the service serves empty ticks until capture is ported):
+
+```powershell
+pnpm install
+cargo run -p parcel-service -- console
+pnpm tauri dev
 ```
 
 ## In this repo today

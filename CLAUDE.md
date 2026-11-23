@@ -7,8 +7,38 @@ per remote host, with the company/service logo, geographic origin, packet counts
 The look takes inspiration from GlassWire's mechanics (live traffic graph, per-app / per-host
 breakdown) but is our own design, not a copy of its visuals.
 
-**State (2026-11-23):** nothing is built yet. Update this file as pieces land: commands, layout and
-architecture go here once they exist.
+**State (2026-11-23):** scaffold only. The service in console mode serves all-zero ticks over the
+pipe (no capture source yet); the app connects, shows ↓/↑ and an offline banner, and reconnects.
+Next: port the Npcap and ETW spikes into `parcel-service` as `CaptureSource`s. Update this file
+as pieces land.
+
+## Commands
+
+```powershell
+cargo run -p parcel-service -- console   # the service in this terminal (pnpm service); admin once ETW lands
+pnpm tauri dev                           # the app, unelevated, connects to \\.\pipe\parcel
+pnpm dev                                 # UI only in a browser; open /?mock for the fake backend
+cargo test --workspace; pnpm test; pnpm check
+cargo fmt --all; cargo clippy --workspace --all-targets
+```
+
+## Layout
+
+```
+crates/parcel-core      portable logic: event.rs (the Event stream), capture.rs (CaptureSource),
+                        engine.rs (byte rule, per-second ticks, run loop)
+crates/parcel-ipc       messages.rs (wire types, PROTOCOL), frame.rs (u32 LE length + JSON),
+                        pipe.rs (Windows server / Connection; SDDL: SYSTEM, admins, interactive users)
+                        feature `pipe` (default); parcel-core takes only the messages
+crates/parcel-service   binary; `console` runs engine thread + pipe server until Ctrl+C
+src-tauri               keeps one pipe Connection, re-emits `tick` and `service` events,
+                        command `service_state`
+src/                    lib/api.ts wraps invoke/listen; lib/dev/mock.ts; routes/+page.svelte
+spikes/                 throwaway research code, not in the workspace
+```
+
+The app icon (`src-tauri/icons/app-icon.svg`, a tied parcel) is a placeholder, never given a design
+round. The identifier `com.happyrave.parcel` copies gitgud's.
 
 ## Stack (decided)
 
@@ -81,6 +111,17 @@ Spike findings to keep:
 - **Tests**: core unit tests, recorded-capture replays through the pipeline, Playwright over
   WebView2 for the GUI (gitgud's approach). Claude's default from the global testing rule, not
   separately asked.
+
+## Architecture (decided 2026-11-23, the owner picked Claude's recommended options)
+
+- **`crates/parcel-ipc`** holds the wire protocol and the named-pipe code, shared by service and UI;
+  `src-tauri` depends on it alone, never on `parcel-core`.
+- **Length-prefixed JSON** frames on the pipe.
+- **The service fetches favicons** (with the DB-IP download) into its ProgramData cache; the UI never
+  goes online.
+- Capture is one portable `parcel_core::event::Event` stream; only its producers are Windows code.
+  With Npcap, Npcap alone counts bytes and ETW only supplies process ids; without it, ETW's
+  `Transfer` events are the bytes.
 
 ## UI
 
