@@ -2,8 +2,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use parcel_ipc::frame::Error;
-use parcel_ipc::messages::ServerMsg;
-use parcel_ipc::pipe::{Connection, PIPE_NAME};
+use parcel_ipc::messages::{AppRate, Reply, Request};
+use parcel_ipc::pipe::{Connection, PIPE_NAME, Requester};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -16,16 +16,35 @@ enum ServiceState {
     Offline { reason: String },
 }
 
-struct Link(Mutex<ServiceState>);
+struct Link {
+    state: Mutex<ServiceState>,
+    requester: Mutex<Option<Requester>>,
+}
 
 #[tauri::command]
 fn service_state(link: State<'_, Link>) -> ServiceState {
-    link.0.lock().expect("link lock").clone()
+    link.state.lock().expect("link lock").clone()
+}
+
+/// History totals per app and host between two times (ms since the epoch), busiest first.
+#[tauri::command]
+async fn usage(link: State<'_, Link>, from: u64, to: u64) -> Result<Vec<AppRate>, String> {
+    let requester = link
+        .requester
+        .lock()
+        .expect("link lock")
+        .clone()
+        .ok_or("the service isn't connected")?;
+    match requester.request(Request::Usage { from, to }).await {
+        Ok(Reply::Usage { apps }) => Ok(apps),
+        Ok(Reply::Error { message }) => Err(message),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 fn set_state(app: &AppHandle, state: ServiceState) {
     let link = app.state::<Link>();
-    let mut current = link.0.lock().expect("link lock");
+    let mut current = link.state.lock().expect("link lock");
     if *current == state {
         return;
     }
@@ -36,11 +55,16 @@ fn set_state(app: &AppHandle, state: ServiceState) {
     }
 }
 
+fn set_requester(app: &AppHandle, requester: Option<Requester>) {
+    *app.state::<Link>().requester.lock().expect("link lock") = requester;
+}
+
 /// Stays connected to the service for the app's lifetime, forwarding ticks as `tick` events.
 async fn keep_linked(app: AppHandle) {
     loop {
         match Connection::open(PIPE_NAME).await {
             Ok(mut conn) => {
+                set_requester(&app, Some(conn.requester()));
                 set_state(
                     &app,
                     ServiceState::Connected {
@@ -49,16 +73,16 @@ async fn keep_linked(app: AppHandle) {
                 );
                 let reason = loop {
                     match conn.next().await {
-                        Ok(Some(ServerMsg::Tick(tick))) => {
+                        Ok(Some(tick)) => {
                             if let Err(e) = app.emit("tick", tick) {
                                 eprintln!("emit tick: {e}");
                             }
                         }
-                        Ok(Some(other)) => break format!("unexpected message: {other:?}"),
                         Ok(None) => break "the service stopped".to_owned(),
                         Err(e) => break e.to_string(),
                     }
                 };
+                set_requester(&app, None);
                 set_state(&app, ServiceState::Offline { reason });
             }
             Err(Error::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -87,12 +111,15 @@ async fn keep_linked(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(Link(Mutex::new(ServiceState::Connecting)))
+        .manage(Link {
+            state: Mutex::new(ServiceState::Connecting),
+            requester: Mutex::new(None),
+        })
         .setup(|app| {
             tauri::async_runtime::spawn(keep_linked(app.handle().clone()));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![service_state])
+        .invoke_handler(tauri::generate_handler![service_state, usage])
         .run(tauri::generate_context!())
         .expect("error while running Parcel");
 }

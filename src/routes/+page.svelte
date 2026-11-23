@@ -9,6 +9,7 @@
     type Tick,
   } from "$lib/api";
   import { rate } from "$lib/format";
+  import History from "$lib/history/History.svelte";
   import Apps from "$lib/live/Apps.svelte";
 
   const tabs = ["Live", "Map", "Flow", "History"] as const;
@@ -52,6 +53,8 @@
       <footer>
         <button class="credit" onclick={() => openDbIp()}>IP Geolocation by DB-IP</button>
       </footer>
+    {:else if tab === "History"}
+      <History />
     {:else}
       <p class="todo">{tab} isn't built yet.</p>
     {/if}

@@ -50,9 +50,13 @@ export type ServiceState =
 
 export interface Commands {
   service_state: () => ServiceState;
+  usage: (args: { from: number; to: number }) => AppRate[];
 }
 
 export const serviceState = () => invoke<ServiceState>("service_state");
+
+/** History totals per app and host between two times (ms since the epoch), busiest first. */
+export const usage = (from: number, to: number) => invoke<AppRate[]>("usage", { from, to });
 
 /** Opens DB-IP's site, the attribution its licence asks for. */
 export const openDbIp = () => openUrl("https://db-ip.com");

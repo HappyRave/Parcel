@@ -1,12 +1,19 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any breaking change to the messages below.
-pub const PROTOCOL: u32 = 4;
+pub const PROTOCOL: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ClientMsg {
-    Hello { protocol: u32 },
+    Hello {
+        protocol: u32,
+    },
+    /// Answered by a `ServerMsg::Reply` with the same `id`, between ticks.
+    Request {
+        id: u32,
+        request: Request,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,9 +21,29 @@ pub enum ClientMsg {
 pub enum ServerMsg {
     Welcome { protocol: u32, service: String },
     Tick(Tick),
+    Reply { id: u32, reply: Reply },
 }
 
-/// Traffic over one second, in bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Request {
+    /// History totals per app and host between two times (ms since the epoch).
+    Usage { from: u64, to: u64 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Reply {
+    /// Busiest first; the `AppRate`s hold totals for the whole span.
+    Usage {
+        apps: Vec<AppRate>,
+    },
+    Error {
+        message: String,
+    },
+}
+
+/// Traffic over one second, in bytes. (`AppRate` and `HostRate` also carry history totals.)
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tick {
     /// End of the second, milliseconds since the Unix epoch.

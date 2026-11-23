@@ -9,8 +9,10 @@ etherparse = "0.21.0"
 maxminddb = { version = "0.33", features = ["mmap"] }
 parcel-ipc.workspace = true
 psl = "2.1.261"
+rusqlite = { version = "0.43.0", features = ["bundled"] }
 serde.workspace = true
 serde_json.workspace = true
 simple-dns = "0.13.1"
 thiserror.workspace = true
+time = { version = "0.3.55", features = ["local-offset"] }
 tls-parser = "0.12.2"

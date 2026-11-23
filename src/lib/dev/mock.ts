@@ -56,17 +56,19 @@ export function installMock() {
   const state: ServiceState = { state: "connected", service: "mock service" };
   const commands: { [K in keyof Commands]: Commands[K] } = {
     service_state: () => state,
+    // About 1 MB/s down and 40 KB/s up averaged over the range.
+    usage: ({ from, to }) => traffic(((to - from) / 1000) * 1_000_000, ((to - from) / 1000) * 40_000),
   };
   mockIPC(
-    (cmd) => {
+    (cmd, args) => {
       if (cmd.startsWith("plugin:opener|")) {
         return null;
       }
-      const handler = commands[cmd as keyof Commands];
+      const handler = commands[cmd as keyof Commands] as ((a: unknown) => unknown) | undefined;
       if (!handler) {
         throw new Error(`mock: no command ${cmd}`);
       }
-      return handler();
+      return handler(args);
     },
     { shouldMockEvents: true },
   );
@@ -76,22 +78,26 @@ export function installMock() {
     t += 1;
     const down = Math.round(2_000_000 + 1_500_000 * Math.sin(t / 5));
     const up = Math.round(80_000 + 40_000 * Math.cos(t / 3));
-    const apps: AppRate[] = APPS.map((a) => ({
-      path: a.path,
-      name: a.name,
-      down: Math.round(down * a.share),
-      up: Math.round(up * a.share),
-      packetsDown: Math.round((down * a.share) / 1400),
-      packetsUp: Math.round((up * a.share) / 300),
-      hosts: a.hosts.map(({ share, ...h }) => ({
-        ...h,
-        down: Math.round(down * a.share * share),
-        up: Math.round(up * a.share * share),
-        packetsDown: Math.round((down * a.share * share) / 1400),
-        packetsUp: Math.round((up * a.share * share) / 300),
-      })),
-    }));
-    const tick: Tick = { at: Math.floor(Date.now() / 1000) * 1000, down, up, apps };
+    const tick: Tick = { at: Math.floor(Date.now() / 1000) * 1000, down, up, apps: traffic(down, up) };
     void emit("tick", tick);
   }, 1000);
+}
+
+/** The mock apps sharing `down` / `up` bytes. */
+function traffic(down: number, up: number): AppRate[] {
+  return APPS.map((a) => ({
+    path: a.path,
+    name: a.name,
+    down: Math.round(down * a.share),
+    up: Math.round(up * a.share),
+    packetsDown: Math.round((down * a.share) / 1400),
+    packetsUp: Math.round((up * a.share) / 300),
+    hosts: a.hosts.map(({ share, ...h }) => ({
+      ...h,
+      down: Math.round(down * a.share * share),
+      up: Math.round(up * a.share * share),
+      packetsDown: Math.round((down * a.share * share) / 1400),
+      packetsUp: Math.round((up * a.share * share) / 300),
+    })),
+  }));
 }

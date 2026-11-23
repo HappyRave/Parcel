@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { rate } from "./format";
+import { bytes, rate } from "./format";
+
+describe("bytes", () => {
+  it("uses the same steps without a per-second suffix", () => {
+    expect(bytes(0)).toBe("0 B");
+    expect(bytes(1_234_567_890)).toBe("1.2 GB");
+    expect(bytes(250_400)).toBe("250 KB");
+  });
+});
 
 describe("rate", () => {
   it("keeps bytes whole", () => {

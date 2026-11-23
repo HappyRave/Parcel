@@ -2,7 +2,11 @@
   import type { AppRate } from "$lib/api";
   import { rate } from "$lib/format";
 
-  let { apps }: { apps: AppRate[] } = $props();
+  let {
+    apps,
+    amount = rate,
+    empty = "No traffic this second.",
+  }: { apps: AppRate[]; amount?: (bytes: number) => string; empty?: string } = $props();
 
   let picked = $state<string | null>(null);
   const selected = $derived(apps.find((a) => a.path === picked) ?? apps[0]);
@@ -17,12 +21,12 @@
         {#each apps as a (a.path)}
           <tr class:on={a === selected} onclick={() => (picked = a.path)}>
             <td class="name" title={a.path}>{a.name}</td>
-            <td class="r num in">{rate(a.down)}</td>
-            <td class="r num out">{rate(a.up)}</td>
+            <td class="r num in">{amount(a.down)}</td>
+            <td class="r num out">{amount(a.up)}</td>
             <td class="r num dim">{a.packetsDown + a.packetsUp}</td>
           </tr>
         {:else}
-          <tr><td colspan="4" class="dim">No traffic this second.</td></tr>
+          <tr><td colspan="4" class="dim">{empty}</td></tr>
         {/each}
       </tbody>
     </table>
@@ -50,8 +54,8 @@
               <span class="clip">{h.city ?? ""}</span>
             </td>
             <td class="clip dim" title={network}>{network}</td>
-            <td class="r num in">{rate(h.down)}</td>
-            <td class="r num out">{rate(h.up)}</td>
+            <td class="r num in">{amount(h.down)}</td>
+            <td class="r num out">{amount(h.up)}</td>
             <td class="r num dim">{h.packetsDown + h.packetsUp}</td>
           </tr>
         {/each}

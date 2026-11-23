@@ -8,6 +8,7 @@ use std::sync::{Arc, RwLock};
 use parcel_core::capture::CaptureSource;
 use parcel_core::event::Event;
 use parcel_core::geo::Geo;
+use parcel_core::store::{Recorder, Store};
 use parcel_ipc::pipe::{self, PIPE_NAME};
 use tokio::sync::broadcast;
 use tracing_subscriber::EnvFilter;
@@ -20,6 +21,7 @@ use crate::process::WinProcesses;
 mod adapters;
 mod capture;
 mod dbip;
+mod history;
 mod process;
 
 const USAGE: &str = "usage: parcel-service console [--record <events.jsonl>]";
@@ -60,6 +62,27 @@ fn console(record: Option<PathBuf>) -> ExitCode {
         None => rx,
     };
 
+    let data = match dbip::data_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::error!("data folder: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let db = data.join("parcel.db");
+    let opened = Store::open(&db).and_then(|store| Ok((store, history::handler(&db)?)));
+    let (store, answer) = match opened {
+        Ok(both) => both,
+        Err(e) => {
+            tracing::error!("history database {}: {e}", db.display());
+            return ExitCode::FAILURE;
+        }
+    };
+    let geo = Arc::new(RwLock::new(Geo::default()));
+    // Never joined: it may be mid-download at shutdown, and holds nothing that needs closing.
+    let (stop_dbip, dbip_stopped) = mpsc::channel();
+    dbip::spawn(data, geo.clone(), dbip_stopped);
+
     let mut npcap = Npcap::default();
     let mut etw = Etw::default();
     let mut ports = PortTable::default();
@@ -70,26 +93,21 @@ fn console(record: Option<PathBuf>) -> ExitCode {
         tracing::error!("nothing is capturing: install Npcap or run as administrator");
     }
 
-    let data = match dbip::data_dir() {
-        Ok(d) => d,
-        Err(e) => {
-            tracing::error!("data folder: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let geo = Arc::new(RwLock::new(Geo::default()));
-    // Never joined: it may be mid-download at shutdown, and holds nothing that needs closing.
-    let (stop_dbip, dbip_stopped) = mpsc::channel();
-    dbip::spawn(data, geo.clone(), dbip_stopped);
-
     let (ticks, _) = broadcast::channel(16);
     let engine = std::thread::spawn({
         let ticks = ticks.clone();
         move || {
+            let mut history = Recorder::new(store);
             parcel_core::engine::run(&rx, npcap_on, WinProcesses::new(), geo, |tick| {
+                if let Err(e) = history.add(&tick) {
+                    tracing::error!("history: a minute was lost: {e}");
+                }
                 // No subscribers is normal while the UI is closed.
                 let _ = ticks.send(tick);
             });
+            if let Err(e) = history.flush() {
+                tracing::error!("history: the last minute was lost: {e}");
+            }
         }
     });
 
@@ -97,7 +115,7 @@ fn console(record: Option<PathBuf>) -> ExitCode {
     tracing::info!("{version} on {PIPE_NAME}, Ctrl+C to stop");
     let result = runtime.block_on(async {
         tokio::select! {
-            r = pipe::serve(PIPE_NAME, ticks, version) => r,
+            r = pipe::serve(PIPE_NAME, ticks, version, answer) => r,
             r = tokio::signal::ctrl_c() => r,
         }
     });

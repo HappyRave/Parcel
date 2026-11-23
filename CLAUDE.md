@@ -7,13 +7,26 @@ per remote host, with the company/service logo, geographic origin, packet counts
 The look takes inspiration from GlassWire's mechanics (live traffic graph, per-app / per-host
 breakdown) but is our own design, not a copy of its visuals.
 
-**State (2026-11-23):** capture, attribution, naming and GeoIP work. In console mode the service
-runs Npcap (packets, DNS and SNI names), ETW (per-process transfers + DNS-client names, admin
-only) and a 1 s socket-table poll into the engine, which sends per-second ticks by app and
-remote host over the pipe; the app shows KPIs, an apps table and the selected app's hosts as
-service · host with location (stamp + city) and network, plus the DB-IP credit (plain tables,
-not the lab design). Not built: storage, favicons, the real Windows service, the lab UI. Update
-this file as pieces land.
+**State (2026-11-23):** capture, attribution, naming, GeoIP and history work. In console mode the
+service runs Npcap (packets, DNS and SNI names), ETW (per-process transfers + DNS-client names,
+admin only) and a 1 s socket-table poll into the engine, which sends per-second ticks by app and
+remote host over the pipe and records them to SQLite; the app shows KPIs, an apps table and the
+selected app's hosts as service · host with location (stamp + city) and network, plus the DB-IP
+credit, and a History tab (30 days / 12 months / all) with the same tables as totals (plain
+tables, not the lab design). Not built: favicons, the per-second backlog for the live graph,
+the real Windows service, the lab UI (graphs, Map, Flow, tray, settings). Update this file as
+pieces land.
+
+History (`store.rs`): `parcel.db` in the data folder, WAL. Tables `apps`, `hosts` (latest
+metadata) and `minute` / `hour` / `day` totals keyed (t, app, host), never packets. The
+`Recorder` folds ticks into the current minute and writes all three resolutions in one
+transaction when the minute ends (and on shutdown); minute rows go after 24 h, hour rows after
+30 days, day rows never. Day keys are local calendar days (Claude's pick: "today" follows the
+user's clock, the UTC offset taken at write time). `Store::usage` reads the finest table still
+covering the range's start, so edges snap to that resolution. The app asks through the pipe
+(`Request::Usage` → `Reply::Usage`, matched by id between ticks); the service answers from a
+read-only connection on a blocking thread. Unelevated runs attribute short flows poorly (most
+of a curl download landed in "Unknown app"); ETW fixes that once the service runs elevated.
 
 Naming (`naming.rs`): hostname → registered domain (`psl`) → `brands.json` on the registered
 domain, else on the public suffix (so `x.github.io` is GitHub) → service = brand, else the
@@ -62,23 +75,27 @@ crates/parcel-core      portable logic: event.rs (the Event stream), capture.rs 
                         engine.rs (byte rule, owners, names, per-app / per-host ticks, run loop),
                         packet.rs (Ethernet frame → Packet, DNS reply / TLS SNI → Hostname),
                         process.rs (App, the Processes trait), geo.rs (DB-IP lookup),
+                        store.rs (SQLite history, Recorder),
                         naming.rs + brands.json
                         (hostname → service); tests/replay.rs replays
                         tests/fixtures/*.jsonl (hand-written, documentation IPs only)
 crates/parcel-ipc       messages.rs (wire types, PROTOCOL), frame.rs (u32 LE length + JSON),
-                        pipe.rs (Windows server / Connection; SDDL: SYSTEM, admins, interactive users)
+                        pipe.rs (Windows server with a request Handler / Connection + Requester;
+                        SDDL: SYSTEM, admins, interactive users)
                         feature `pipe` (default); parcel-core takes only the messages
 crates/parcel-service   binary; `console` starts the sources, engine thread and pipe server until
                         Ctrl+C. capture/npcap.rs (one thread per hardware adapter, adapters.rs
                         matches them by GUID), capture/etw.rs (session `Parcel-KernelNetwork`),
                         capture/ports.rs (socket-table poll), process.rs (pid → exe path + name),
-                        dbip.rs (data folder, monthly DB-IP download).
+                        dbip.rs (data folder, monthly DB-IP download), history.rs (answers
+                        Request::Usage).
                         build.rs makes wpcap.lib from lib/wpcap.def with lib.exe (needs the VS C++
                         build tools) and delay-loads wpcap.dll
 src-tauri               keeps one pipe Connection, re-emits `tick` and `service` events,
-                        command `service_state`
+                        commands `service_state`, `usage` (forwarded as a pipe request)
 src/                    lib/api.ts wraps invoke/listen; lib/dev/mock.ts; routes/+page.svelte;
-                        lib/live/Apps.svelte (apps + selected app's hosts)
+                        lib/live/Apps.svelte (apps + selected app's hosts, rates or totals),
+                        lib/history/History.svelte (ranges + totals)
 spikes/                 throwaway research code, not in the workspace
 ```
 
