@@ -5,6 +5,7 @@
   --panel: #171a1f;
   --raise: #1d2127;
   --line: #262a31;
+  --rowline: #1b1e23;
   --title: #101216;
   --ink: #e9e6df;
   --mute: #8b909a;
@@ -14,8 +15,22 @@
   --kraft: #c8955a;
   --warn: #f2c14e;
   --bad: #ef6f6c;
+  --ok: #5fd068;
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
   --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  /* App colours: an app's path hashes to one of these (Claude's pick, 2026-11-23); the first
+     four are the lab mock's. "other" and Unknown app are grey. */
+  --c0: #4f8df5;
+  --c1: #8796b3;
+  --c2: #d97757;
+  --c3: #8f98f5;
+  --c4: #5fb878;
+  --c5: #d4a843;
+  --c6: #c46fb0;
+  --c7: #e0708a;
+  --c8: #9aa64f;
+  --c9: #4fb3d9;
+  --other: #7b808a;
   color-scheme: dark;
 }
 
@@ -26,6 +41,7 @@
     --panel: #ffffff;
     --raise: #ece8df;
     --line: #e0dbd0;
+    --rowline: #ebe6dc;
     --title: #efece4;
     --ink: #1d1f23;
     --mute: #6b6e75;
@@ -51,9 +67,53 @@ body {
   background: var(--win);
   color: var(--ink);
   font: 13px/1.4 var(--ui);
+  overflow: hidden;
 }
 
 .num {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
+}
+
+.in {
+  color: var(--in);
+}
+
+.out {
+  color: var(--out);
+}
+
+.mute {
+  color: var(--mute);
+}
+
+.ell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* R2 P2: postage-stamp country codes, straight. */
+.stamp {
+  font: 700 10px var(--mono);
+  letter-spacing: 0.5px;
+  padding: 1px 4px;
+  color: var(--kraft);
+  border: 1.5px dotted var(--kraft);
+  border-radius: 2px;
+  display: inline-block;
+  line-height: 13px;
+  flex: none;
+}
+
+.listhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 11px;
+  color: var(--mute);
+  border-bottom: 1px solid var(--line);
+  text-transform: lowercase;
 }

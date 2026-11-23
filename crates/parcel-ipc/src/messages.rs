@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bumped on any breaking change to the messages below.
-pub const PROTOCOL: u32 = 5;
+pub const PROTOCOL: u32 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -19,9 +19,26 @@ pub enum ClientMsg {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ServerMsg {
-    Welcome { protocol: u32, service: String },
+    Welcome { protocol: u32, greeting: Greeting },
     Tick(Tick),
     Reply { id: u32, reply: Reply },
+}
+
+/// What the service tells each new client.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Greeting {
+    /// Name and version, e.g. `parcel-service 0.1.0`.
+    pub service: String,
+    pub capture: Capture,
+    /// The last few minutes of ticks, oldest first, so a new window starts with a full graph.
+    pub recent: Vec<Tick>,
+}
+
+/// Which capture sources are running.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Capture {
+    pub npcap: bool,
+    pub etw: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

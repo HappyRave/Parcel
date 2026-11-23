@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { bytes, rate } from "./format";
+import { bytes, count, parts, rate } from "./format";
+
+describe("parts", () => {
+  it("splits the number from its unit for KPIs", () => {
+    expect(parts(4_100_000)).toEqual(["4.1", "MB"]);
+    expect(parts(96)).toEqual(["96", "B"]);
+  });
+});
+
+describe("count", () => {
+  it("groups thousands", () => {
+    expect(count(30072)).toBe("30,072");
+    expect(count(7)).toBe("7");
+  });
+});
 
 describe("bytes", () => {
   it("uses the same steps without a per-second suffix", () => {

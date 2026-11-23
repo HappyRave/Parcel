@@ -11,11 +11,20 @@ breakdown) but is our own design, not a copy of its visuals.
 work. The service (installed, or in console mode) runs Npcap (packets, DNS and SNI names), ETW
 (per-process transfers + DNS-client names, admin only) and a 1 s socket-table poll into the
 engine, which sends per-second ticks by app and remote host over the pipe and records them to
-SQLite; the app shows KPIs, an apps table and the selected app's hosts as service · host with
-location (stamp + city) and network, plus the DB-IP credit, and a History tab (30 days / 12
-months / all) with the same tables as totals (plain tables, not the lab design). Not built:
-favicons, the per-second backlog for the live graph, the installer, the lab UI (graphs, Map,
-Flow, tray, settings). Update this file as pieces land.
+SQLite. The app's Live tab is the R3 home mock: custom title bar (tabs, npcap / etw / service
+pills, own window buttons), KPI row, the mirrored by-app graph over 5 minutes (H3 scales, by app
+| 2 colours, hover tooltip), apps over 5 minutes and the picked app's hosts (letter tiles,
+stamps, network, packets, 60 s sparkline). History is still plain tables. Not built: graph
+ranges 1h / 24h / 30d, favicons and app icons, History Y1, Map, Flow, tray flyout, settings,
+first run, the installer. Update this file as pieces land.
+
+Live (`src-tauri/src/live.rs`): the service keeps the last 300 ticks in memory and sends them in
+the greeting (`Greeting { service, capture, recent }`), so a new window opens with a full graph.
+`live::Live` turns the window into a `LiveView` every second (emitted as `live`): KPIs (today =
+history since local midnight, refreshed each minute, + live ticks after that minute), graph
+series (top 4 apps by ↓+↑ get bands, the rest is "other"), apps sorted by ↓, the picked app's
+hosts (`select_app`). Colours are palette indices (`--c0`…`--c9` in `app.css`); an unnamed host
+gets a grey "?" tile.
 
 Windows service (`service.rs`, `runner.rs`): `parcel-service install` registers service `Parcel`
 (automatic start, LocalSystem, restarts 5 s / 30 s / 5 min after a failure, also on an error
@@ -114,11 +123,13 @@ crates/parcel-service   binary; main.rs parses console / install / uninstall / r
                         Request::Usage).
                         build.rs makes wpcap.lib from lib/wpcap.def with lib.exe (needs the VS C++
                         build tools) and delay-loads wpcap.dll
-src-tauri               keeps one pipe Connection, re-emits `tick` and `service` events,
-                        commands `service_state`, `usage` (forwarded as a pipe request)
-src/                    lib/api.ts wraps invoke/listen; lib/dev/mock.ts; routes/+page.svelte;
-                        lib/live/Apps.svelte (apps + selected app's hosts, rates or totals),
-                        lib/history/History.svelte (ranges + totals)
+src-tauri               keeps one pipe Connection, live.rs builds the Live view; emits `live`
+                        and `service`; commands `service_state`, `usage`, `select_app`;
+                        window decorations off (custom title bar)
+src/                    lib/api.ts wraps invoke/listen; lib/dev/mock.ts (fake Live view);
+                        routes/+page.svelte; lib/chrome/TitleBar.svelte; lib/live/ Kpis,
+                        LiveGraph, AppList, HostTable, Tile (Live tab), Apps.svelte (History's
+                        tables); lib/history/History.svelte (ranges + totals)
 spikes/                 throwaway research code, not in the workspace
 ```
 
@@ -244,5 +255,11 @@ Design rounds live on `design/lab/index.html` (`design-round` skill), never deci
     "Clear…", version and the DB-IP credit.
   - Map and Flow tabs: build from R1's B and C drawings with R2's P2 rules. Tray flyout: build from
     R2's M3 drawing.
+- **Live build calls (decided 2026-11-23, the owner picked Claude's recommended options):**
+  - Window: custom title bar as drawn (decorations off; brand, tabs, status pills, own
+    min / max / close; draggable). Windows' snap-layout flyout on the maximize button is lost.
+  - App colours: stable per app, the exe path hashed into a fixed 10-colour palette (two apps
+    can share a colour); "other" and Unknown app are grey. The palette itself is Claude's pick.
+  - Live graph: the top 4 apps of the window get their own band, the rest fold into "other".
 - **Parcel's own traffic (decided 2026-11-23):** the owner: "Parcel's own favicon traffic is shown as
   Parcel's traffic". Parcel is listed like any other app.

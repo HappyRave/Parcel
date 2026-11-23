@@ -18,7 +18,7 @@ use windows_sys::Win32::Security::Authorization::{
 use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 
 use crate::frame::{self, Error};
-use crate::messages::{ClientMsg, PROTOCOL, Reply, Request, ServerMsg, Tick};
+use crate::messages::{ClientMsg, Greeting, PROTOCOL, Reply, Request, ServerMsg, Tick};
 
 pub const PIPE_NAME: &str = r"\\.\pipe\parcel";
 
@@ -31,15 +31,18 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Answers client requests; runs on a blocking thread, so it may do I/O.
 pub type Handler = Arc<dyn Fn(Request) -> Reply + Send + Sync>;
 
-/// Accepts clients on `name` forever, streaming every tick from `ticks` to each of them and
-/// answering their requests with `handler`.
+/// Builds the greeting for a client that just said hello.
+pub type Greeter = Arc<dyn Fn() -> Greeting + Send + Sync>;
+
+/// Accepts clients on `name` forever: greets each with `greet`, streams every tick from `ticks`
+/// and answers requests with `handler`.
 ///
 /// # Errors
 /// When the pipe can't be created, e.g. because another process already owns the name.
 pub async fn serve(
     name: &str,
     ticks: broadcast::Sender<Tick>,
-    service: &str,
+    greet: Greeter,
     handler: Handler,
 ) -> io::Result<()> {
     let mut server = create(name, true).map_err(|e| {
@@ -56,9 +59,9 @@ pub async fn serve(
         server.connect().await?;
         let client = std::mem::replace(&mut server, create(name, false)?);
         let rx = ticks.subscribe();
-        let (service, handler) = (service.to_owned(), handler.clone());
+        let (greet, handler) = (greet.clone(), handler.clone());
         tokio::spawn(async move {
-            match handle(client, rx, service, handler).await {
+            match handle(client, rx, greet, handler).await {
                 Ok(()) => tracing::debug!("client left"),
                 Err(Error::Io(e)) if e.kind() == io::ErrorKind::BrokenPipe => {
                     tracing::debug!("client left");
@@ -72,7 +75,7 @@ pub async fn serve(
 async fn handle(
     pipe: NamedPipeServer,
     mut ticks: broadcast::Receiver<Tick>,
-    service: String,
+    greet: Greeter,
     handler: Handler,
 ) -> Result<(), Error> {
     let (mut rd, mut wr) = tokio::io::split(pipe);
@@ -90,9 +93,11 @@ async fn handle(
         Some(other) => return Err(Error::Unexpected(format!("{other:?} before hello"))),
         None => return Ok(()),
     }
+    // Built after subscribing to `ticks`, so no tick falls between the greeting's recent ticks
+    // and the stream; one may arrive twice, which clients skip by its `at`.
     let welcome = ServerMsg::Welcome {
         protocol: PROTOCOL,
-        service,
+        greeting: greet(),
     };
     frame::write(&mut wr, &welcome).await?;
 
@@ -185,7 +190,7 @@ type Pending = Mutex<HashMap<u32, oneshot::Sender<Reply>>>;
 pub struct Connection {
     reader: ReadHalf<NamedPipeClient>,
     requester: Requester,
-    pub service: String,
+    pub greeting: Greeting,
 }
 
 /// Sends requests on a [`Connection`]; cheap to clone.
@@ -213,8 +218,8 @@ impl Connection {
         };
         let (mut reader, mut writer) = tokio::io::split(pipe);
         frame::write(&mut writer, &ClientMsg::Hello { protocol: PROTOCOL }).await?;
-        let service = match frame::read(&mut reader).await? {
-            Some(ServerMsg::Welcome { protocol, service }) if protocol == PROTOCOL => service,
+        let greeting = match frame::read(&mut reader).await? {
+            Some(ServerMsg::Welcome { protocol, greeting }) if protocol == PROTOCOL => greeting,
             Some(ServerMsg::Welcome { protocol, .. }) => {
                 return Err(Error::Protocol {
                     ours: PROTOCOL,
@@ -231,7 +236,7 @@ impl Connection {
                 pending: Arc::default(),
                 next_id: Arc::default(),
             },
-            service,
+            greeting,
         })
     }
 
@@ -311,7 +316,7 @@ impl Requester {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::AppRate;
+    use crate::messages::{AppRate, Capture};
 
     fn test_pipe(tag: &str) -> String {
         format!(r"\\.\pipe\parcel-test-{tag}-{}", std::process::id())
@@ -328,6 +333,18 @@ mod tests {
         })
     }
 
+    fn greeter(service: &str, recent: Vec<Tick>) -> Greeter {
+        let greeting = Greeting {
+            service: service.into(),
+            capture: Capture {
+                npcap: true,
+                etw: false,
+            },
+            recent,
+        };
+        Arc::new(move || greeting.clone())
+    }
+
     async fn connect(name: &str) -> Connection {
         loop {
             match Connection::open(name).await {
@@ -341,15 +358,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn client_receives_ticks() {
+    async fn client_is_greeted_then_receives_ticks() {
         let name = test_pipe("ticks");
         let (tx, _) = broadcast::channel(8);
+        let recent = vec![Tick {
+            at: 500,
+            ..Tick::default()
+        }];
         let server = tokio::spawn({
-            let (name, tx) = (name.clone(), tx.clone());
-            async move { serve(&name, tx, "test 1.0", echo_handler()).await }
+            let (name, tx, greet) = (
+                name.clone(),
+                tx.clone(),
+                greeter("test 1.0", recent.clone()),
+            );
+            async move { serve(&name, tx, greet, echo_handler()).await }
         });
         let mut conn = connect(&name).await;
-        assert_eq!(conn.service, "test 1.0");
+        assert_eq!(conn.greeting.service, "test 1.0");
+        assert_eq!(conn.greeting.recent, recent);
+        assert!(conn.greeting.capture.npcap && !conn.greeting.capture.etw);
         let tick = Tick {
             at: 1000,
             down: 5,
@@ -367,7 +394,7 @@ mod tests {
         let (tx, _) = broadcast::channel(8);
         let server = tokio::spawn({
             let (name, tx) = (name.clone(), tx.clone());
-            async move { serve(&name, tx, "test", echo_handler()).await }
+            async move { serve(&name, tx, greeter("test", Vec::new()), echo_handler()).await }
         });
         let mut conn = connect(&name).await;
         let requester = conn.requester();
@@ -408,7 +435,7 @@ mod tests {
             let _hello: Option<ClientMsg> = frame::read(&mut pipe).await.unwrap();
             let welcome = ServerMsg::Welcome {
                 protocol: PROTOCOL,
-                service: "dying".into(),
+                greeting: Greeting::default(),
             };
             frame::write(&mut pipe, &welcome).await.unwrap();
             let request: Option<ClientMsg> = frame::read(&mut pipe).await.unwrap();
