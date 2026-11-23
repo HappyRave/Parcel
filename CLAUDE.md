@@ -7,15 +7,17 @@ per remote host, with the company/service logo, geographic origin, packet counts
 The look takes inspiration from GlassWire's mechanics (live traffic graph, per-app / per-host
 breakdown) but is our own design, not a copy of its visuals.
 
-**State (2026-11-23):** scaffold only. The service in console mode serves all-zero ticks over the
-pipe (no capture source yet); the app connects, shows ↓/↑ and an offline banner, and reconnects.
-Next: port the Npcap and ETW spikes into `parcel-service` as `CaptureSource`s. Update this file
-as pieces land.
+**State (2026-11-23):** capture works. In console mode the service runs Npcap (packets, DNS and SNI
+names) and ETW (per-process transfers, admin only) into the engine, which sends total ↓/↑ ticks
+over the pipe; the app shows them with an offline banner and reconnects. Not built: attribution
+(flow → pid → app), naming, GeoIP, storage, the real Windows service, the UI beyond the KPI pair.
+Update this file as pieces land.
 
 ## Commands
 
 ```powershell
-cargo run -p parcel-service -- console   # the service in this terminal (pnpm service); admin once ETW lands
+cargo run -p parcel-service -- console   # the service in this terminal (pnpm service); admin for ETW
+cargo run -p parcel-service -- console --record events.jsonl   # also dump every Event (holds real hostnames: never commit one)
 pnpm tauri dev                           # the app, unelevated, connects to \\.\pipe\parcel
 pnpm dev                                 # UI only in a browser; open /?mock for the fake backend
 cargo test --workspace; pnpm test; pnpm check
@@ -26,11 +28,16 @@ cargo fmt --all; cargo clippy --workspace --all-targets
 
 ```
 crates/parcel-core      portable logic: event.rs (the Event stream), capture.rs (CaptureSource),
-                        engine.rs (byte rule, per-second ticks, run loop)
+                        engine.rs (byte rule, per-second ticks, run loop),
+                        packet.rs (Ethernet frame → Packet, DNS reply / TLS SNI → Hostname)
 crates/parcel-ipc       messages.rs (wire types, PROTOCOL), frame.rs (u32 LE length + JSON),
                         pipe.rs (Windows server / Connection; SDDL: SYSTEM, admins, interactive users)
                         feature `pipe` (default); parcel-core takes only the messages
-crates/parcel-service   binary; `console` runs engine thread + pipe server until Ctrl+C
+crates/parcel-service   binary; `console` starts the sources, engine thread and pipe server until
+                        Ctrl+C. capture/npcap.rs (one thread per hardware adapter, adapters.rs
+                        matches them by GUID), capture/etw.rs (session `Parcel-KernelNetwork`).
+                        build.rs makes wpcap.lib from lib/wpcap.def with lib.exe (needs the VS C++
+                        build tools) and delay-loads wpcap.dll
 src-tauri               keeps one pipe Connection, re-emits `tick` and `service` events,
                         command `service_state`
 src/                    lib/api.ts wraps invoke/listen; lib/dev/mock.ts; routes/+page.svelte

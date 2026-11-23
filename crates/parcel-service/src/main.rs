@@ -1,19 +1,31 @@
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Receiver};
 
+use parcel_core::capture::CaptureSource;
 use parcel_core::event::Event;
 use parcel_ipc::pipe::{self, PIPE_NAME};
 use tokio::sync::broadcast;
 use tracing_subscriber::EnvFilter;
 
-const USAGE: &str = "usage: parcel-service console";
+use crate::capture::etw::Etw;
+use crate::capture::npcap::Npcap;
+
+mod adapters;
+mod capture;
+
+const USAGE: &str = "usage: parcel-service console [--record <events.jsonl>]";
 
 fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
-    match std::env::args().nth(1).as_deref() {
-        Some("console") => console(),
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        ["console"] => console(None),
+        ["console", "--record", path] => console(Some(PathBuf::from(path))),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
@@ -22,7 +34,7 @@ fn main() -> ExitCode {
 }
 
 /// Runs the service in this terminal until Ctrl+C, for development.
-fn console() -> ExitCode {
+fn console(record: Option<PathBuf>) -> ExitCode {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
@@ -30,12 +42,31 @@ fn console() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let (ticks, _) = broadcast::channel(16);
     let (events, rx) = mpsc::channel::<Event>();
+    let rx = match record {
+        Some(path) => match recorder(&path, rx) {
+            Ok(rx) => rx,
+            Err(e) => {
+                tracing::error!("can't record to {}: {e}", path.display());
+                return ExitCode::FAILURE;
+            }
+        },
+        None => rx,
+    };
+
+    let mut npcap = Npcap::default();
+    let mut etw = Etw::default();
+    let npcap_on = start(&mut npcap, &events);
+    let etw_on = start(&mut etw, &events);
+    if !npcap_on && !etw_on {
+        tracing::error!("nothing is capturing: install Npcap or run as administrator");
+    }
+
+    let (ticks, _) = broadcast::channel(16);
     let engine = std::thread::spawn({
         let ticks = ticks.clone();
         move || {
-            parcel_core::engine::run(&rx, false, |tick| {
+            parcel_core::engine::run(&rx, npcap_on, |tick| {
                 // No subscribers is normal while the UI is closed.
                 let _ = ticks.send(tick);
             });
@@ -51,6 +82,8 @@ fn console() -> ExitCode {
         }
     });
 
+    npcap.stop();
+    etw.stop();
     drop(events);
     if engine.join().is_err() {
         tracing::error!("engine thread panicked");
@@ -63,4 +96,39 @@ fn console() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn start(source: &mut dyn CaptureSource, events: &mpsc::Sender<Event>) -> bool {
+    match source.start(events.clone()) {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!("{e}");
+            false
+        }
+    }
+}
+
+/// Writes every event to `path` as one JSON line, then passes it on.
+fn recorder(path: &PathBuf, rx: Receiver<Event>) -> std::io::Result<Receiver<Event>> {
+    let mut out = BufWriter::new(File::create(path)?);
+    let (fwd, fwd_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for event in rx {
+            let written = serde_json::to_writer(&mut out, &event)
+                .map_err(std::io::Error::from)
+                .and_then(|()| out.write_all(b"\n"));
+            if let Err(e) = written {
+                tracing::error!("recording stopped: {e}");
+                return;
+            }
+            if fwd.send(event).is_err() {
+                break;
+            }
+        }
+        if let Err(e) = out.flush() {
+            tracing::error!("recording: {e}");
+        }
+    });
+    tracing::info!("recording events to {}", path.display());
+    Ok(fwd_rx)
 }

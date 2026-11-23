@@ -1,9 +1,9 @@
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use parcel_ipc::messages::Tick;
 
-use crate::event::{Dir, Event, Millis};
+use crate::event::{Dir, Event, Millis, now_millis};
 
 /// Feeds `events` into an engine and calls `on_tick` at every wall-clock second, until every
 /// sender is dropped.
@@ -23,12 +23,6 @@ pub fn run(events: &Receiver<Event>, npcap: bool, mut on_tick: impl FnMut(Tick))
             next = now / 1000 * 1000 + 1000;
         }
     }
-}
-
-fn now_millis() -> Millis {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// Folds the capture event stream into per-second totals.
@@ -55,7 +49,7 @@ impl Engine {
         match *event {
             Event::Packet { dir, bytes, .. } => self.count(dir, bytes),
             Event::Transfer { dir, bytes, .. } if !self.npcap => self.count(dir, bytes),
-            Event::Transfer { .. } | Event::SocketOwner { .. } | Event::Hostname { .. } => {}
+            Event::Transfer { .. } | Event::Hostname { .. } => {}
         }
     }
 

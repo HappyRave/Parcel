@@ -1,9 +1,17 @@
 use std::net::{IpAddr, SocketAddr};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
 /// Milliseconds since the Unix epoch.
 pub type Millis = u64;
+
+#[must_use]
+pub fn now_millis() -> Millis {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -39,14 +47,15 @@ pub enum NameSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Event {
-    /// One packet seen on the wire (Npcap). `bytes` is the IP length.
+    /// One frame seen on the wire (Npcap). `bytes` is its length on the wire.
     Packet {
         at: Millis,
         flow: Flow,
         dir: Dir,
         bytes: u32,
     },
-    /// One send or receive call by a process (ETW). Counts bytes only when Npcap is absent.
+    /// One send or receive call by a process (ETW). Always names the flow's owner; counts bytes
+    /// only when Npcap is absent.
     Transfer {
         at: Millis,
         pid: u32,
@@ -54,8 +63,6 @@ pub enum Event {
         dir: Dir,
         bytes: u32,
     },
-    /// A process owns this flow (ETW).
-    SocketOwner { at: Millis, pid: u32, flow: Flow },
     /// A hostname seen for an address, from a DNS reply or a TLS `ClientHello`.
     Hostname {
         at: Millis,

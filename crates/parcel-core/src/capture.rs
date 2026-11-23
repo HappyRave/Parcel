@@ -17,8 +17,6 @@ pub enum CaptureError {
 
 /// A platform capture backend (Npcap, ETW, later macOS / Linux ones).
 pub trait CaptureSource: Send {
-    fn name(&self) -> &'static str;
-
     /// Starts capturing on the source's own threads, sending every event to `events`.
     ///
     /// # Errors
